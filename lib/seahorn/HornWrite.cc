@@ -3,6 +3,7 @@
 #include "seahorn/HornClauseDBTransf.hh"
 #include "seahorn/HornifyModule.hh"
 #include "seahorn/McMtWriter.hh"
+#include "seahorn/KPropertyVerifier.hh"
 
 #include "seahorn/config.h"
 
@@ -11,6 +12,8 @@
 namespace seahorn {
 extern bool InterProcMemFmaps;
 }
+
+extern int HyperK;
 
 static llvm::cl::opt<bool> InternalWriter(
     "horn-fp-internal-writer",
@@ -32,6 +35,8 @@ char HornWrite::ID = 0;
 
 void HornWrite::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addRequired<HornifyModule>();
+  if (HyperK > 1)
+    AU.addRequired<KPropertyVerifier>();
   AU.setPreservesAll();
 }
 

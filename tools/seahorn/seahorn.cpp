@@ -205,6 +205,11 @@ static llvm::cl::opt<bool> EvalBranchSentinelOpt(
     llvm::cl::desc("Evaluate intrinsics added by AddBranchSentinel pass."),
     llvm::cl::init(false));
 
+static llvm::cl::opt<int> HyperK(
+    "hyper-k",
+    llvm::cl::desc("Value of K for the purpose of k-safety properties."),
+    llvm::cl::init(1));
+
 // removes extension from filename if there is one
 std::string getFileName(const std::string &str) {
   std::string filename = str;
@@ -404,6 +409,15 @@ int main(int argc, char **argv) {
 
   if (!Bmc && !BoogieOutput) {
     pass_manager.add(new seahorn::HornifyModule());
+
+    if (HyperK > 1) {
+      // For the purpose of k-safety we check the value of HyperK.
+      // If HyperK > 1 then we need to add another pass to modify
+      // the horn clauses created in the previous step.
+      // TODO
+      llvm::outs() << "Reached hyper-property section!\n";
+    }
+
     if (!OutputFilename.empty()) {
       // -- XXX we dump the horn clauses into a file *before* we strip
       // -- shadows. Otherwise, HornWrite can crash.

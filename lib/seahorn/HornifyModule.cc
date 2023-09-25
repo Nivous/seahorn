@@ -131,6 +131,8 @@ extern InterMemStats g_im_stats;
 extern InterMemFMStats g_imfm_stats;
 } // namespace seahorn
 
+extern int HyperK;
+
 namespace seahorn {
 char HornifyModule::ID = 0;
 
@@ -242,7 +244,7 @@ bool HornifyModule::runOnModule(Module &M) {
   }
 
   // --- no function can fail so the program is trivially safe.
-  if (!canFail && !NoVerification) {
+  if (!canFail && !NoVerification && HyperK == 1) {
     errs() << "WARNING: no assertion was found ";
     errs() << "so either program does not have assertions or frontend "
               "discharged them.\n";

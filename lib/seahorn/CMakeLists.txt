@@ -49,6 +49,7 @@ add_llvm_library (seahorn.LIB DISABLE_LLVM_LINK_LLVM_DYLIB
   BvOpSem2ExtraWideMemMgr.cc
   VCGen.cc
   DfCoiAnalysis.cc
+  KPropertyVerifier.cc
   )
 
 add_subdirectory(Smt)

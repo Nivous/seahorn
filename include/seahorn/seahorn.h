@@ -58,6 +58,10 @@ extern void sea_set_shadowmem(char, char *, char);
  * arg1 - A
  */
 extern char sea_get_shadowmem(char, char *);
+
+extern void __hyper_pre_gt(int);
+extern void __hyper_post_gt(int);
+
 #ifdef __cplusplus
 }
 #endif

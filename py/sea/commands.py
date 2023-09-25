@@ -1205,6 +1205,8 @@ class Seahorn(sea.LimitedCmd):
                         help='Eval branch sentinel instrinsic',
                         default=False,
                         action='store_true')
+        ap.add_argument ('--hyper-k', dest='hyper_k', type=int, default=1,
+                        help='Value of K for the purpose of k-safety properties')
 
         return ap
 
@@ -1296,6 +1298,9 @@ class Seahorn(sea.LimitedCmd):
             argv.append('--lower-gv-init=false')
         if args.eval_branch_sentinel:
             argv.append('--eval-branch-sentinel')
+        
+        if args.hyper_k > 1:
+            argv.append('--hyper-k={}'.format(args.hyper_k))
 
         argv.extend (args.in_files)
 

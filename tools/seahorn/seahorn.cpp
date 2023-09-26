@@ -281,6 +281,8 @@ int main(int argc, char **argv) {
   // initialise and run passes //
   ///////////////////////////////
 
+  seahorn::SeaEnableLog("phc");
+
   llvm::legacy::PassManager pass_manager;
   llvm::PassRegistry &Registry = *llvm::PassRegistry::getPassRegistry();
 

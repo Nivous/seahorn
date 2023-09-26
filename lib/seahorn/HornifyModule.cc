@@ -42,6 +42,8 @@
 #include "seahorn/FiniteMapTransf.hh"
 #include "seahorn/UfoOpSem.hh"
 
+#include "seahorn/Transforms/Scalar/PromoteHyperCalls.hh"
+
 using namespace llvm;
 using namespace seahorn;
 using namespace seadsa;
@@ -168,6 +170,12 @@ HornifyModule::HornifyModule()
 
 bool HornifyModule::runOnModule(Module &M) {
   ScopedStats _st("HornifyModule");
+  auto &SBI = getAnalysis<SeaBuiltinsInfoWrapperPass>().getSBI();
+
+  if (HyperK > 1) {
+    errs() << "Going into PromoteHyperCalls\n";
+    PromoteHyperCalls().runOnModule(M, SBI);
+  }
 
   bool Changed = false;
   m_td = &M.getDataLayout();

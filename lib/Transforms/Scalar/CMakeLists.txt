@@ -20,6 +20,7 @@ add_llvm_library (SeaTransformsScalar DISABLE_LLVM_LINK_LLVM_DYLIB
   BackedgeCutter.cc
   LowerIsDeref.cc
   CrabLowerIsDeref.cc
+  PromoteHyperCalls.cc
   )
 
 # if (HAVE_CLAM)

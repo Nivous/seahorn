@@ -281,8 +281,6 @@ int main(int argc, char **argv) {
   // initialise and run passes //
   ///////////////////////////////
 
-  seahorn::SeaEnableLog("phc");
-
   llvm::legacy::PassManager pass_manager;
   llvm::PassRegistry &Registry = *llvm::PassRegistry::getPassRegistry();
 
@@ -411,7 +409,7 @@ int main(int argc, char **argv) {
   // Z3_open_log("log.txt");
 
   if (!Bmc && !BoogieOutput) {
-    pass_manager.add(new seahorn::HornifyModule());
+    pass_manager.add(new seahorn::HornifyModule(HyperK));
     if (HyperK > 1) {
       // For the purpose of k-safety we check the value of HyperK.
       // If HyperK > 1 then we need to add another pass to modify
@@ -423,7 +421,7 @@ int main(int argc, char **argv) {
     if (!OutputFilename.empty()) {
       // -- XXX we dump the horn clauses into a file *before* we strip
       // -- shadows. Otherwise, HornWrite can crash.
-      pass_manager.add(new seahorn::HornWrite(output->os()));
+      pass_manager.add(new seahorn::HornWrite(output->os(), HyperK));
     }
   }
 

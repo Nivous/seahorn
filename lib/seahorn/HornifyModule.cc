@@ -55,18 +55,6 @@ static llvm::cl::opt<enum TrackLevel>
                   clEnumValN(MEM, "mem", "PTR + memory content")),
        cl::init(seahorn::REG));
 
-namespace hm_detail {
-enum Step {
-  SMALL_STEP,
-  LARGE_STEP,
-  CLP_SMALL_STEP,
-  CLP_FLAT_SMALL_STEP,
-  FLAT_SMALL_STEP,
-  FLAT_LARGE_STEP,
-  INC_SMALL_STEP
-};
-}
-
 static llvm::cl::opt<enum hm_detail::Step> Step(
     "horn-step", llvm::cl::desc("Step to use for the encoding"),
     cl::values(
@@ -133,8 +121,6 @@ extern InterMemStats g_im_stats;
 extern InterMemFMStats g_imfm_stats;
 } // namespace seahorn
 
-extern int HyperK;
-
 namespace seahorn {
 char HornifyModule::ID = 0;
 
@@ -165,17 +151,15 @@ bool shouldBeAbstracted(const Function &fn) {
   return false;
 }
 
-HornifyModule::HornifyModule()
-    : ModulePass(ID), m_zctx(m_efac), m_db(m_efac), m_td(0), m_canFail(0) {}
+HornifyModule::HornifyModule(int hyper_k)
+    : ModulePass(ID), m_zctx(m_efac), m_db(m_efac), m_td(0), m_canFail(0), hyper_k(hyper_k) {}
 
 bool HornifyModule::runOnModule(Module &M) {
   ScopedStats _st("HornifyModule");
   auto &SBI = getAnalysis<SeaBuiltinsInfoWrapperPass>().getSBI();
 
-  if (HyperK > 1) {
-    errs() << "Going into PromoteHyperCalls\n";
+  if (hyper_k > 1)
     PromoteHyperCalls().runOnModule(M, SBI);
-  }
 
   bool Changed = false;
   m_td = &M.getDataLayout();
@@ -187,6 +171,8 @@ bool HornifyModule::runOnModule(Module &M) {
       if (shouldBeAbstracted(F))
         abs_fns.insert(&F);
   }
+
+  step_size = Step;
 
   if (Step == hm_detail::CLP_SMALL_STEP ||
       Step == hm_detail::CLP_FLAT_SMALL_STEP)
@@ -252,7 +238,7 @@ bool HornifyModule::runOnModule(Module &M) {
   }
 
   // --- no function can fail so the program is trivially safe.
-  if (!canFail && !NoVerification && HyperK == 1) {
+  if (!canFail && !NoVerification && hyper_k == 1) {
     errs() << "WARNING: no assertion was found ";
     errs() << "so either program does not have assertions or frontend "
               "discharged them.\n";

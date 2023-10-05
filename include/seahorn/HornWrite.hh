@@ -13,9 +13,10 @@ namespace seahorn
   class HornWrite : public llvm::ModulePass
   {
     llvm::raw_fd_ostream& m_out;
+    int hyper_k;
   public:
     static char ID;
-    HornWrite (llvm::raw_fd_ostream &out) : llvm::ModulePass (ID), m_out (out) {}
+    HornWrite (llvm::raw_fd_ostream &out, int hyper_k) : llvm::ModulePass (ID), m_out (out), hyper_k(hyper_k) {}
     virtual ~HornWrite() = default;
     virtual StringRef getPassName() const override {return "HornWrite";}
     

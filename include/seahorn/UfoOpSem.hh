@@ -10,6 +10,8 @@
 #include "seadsa/ShadowMem.hh"
 #include "seahorn/InterMemPreProc.hh"
 
+#include "seahorn/KPropertyVerifier.hh"
+
 namespace llvm {
 class GetElementPtrInst;
 }
@@ -81,6 +83,9 @@ public:
   void execRange(SymStore &s, const llvm::BasicBlock::iterator begin,
                  const llvm::BasicBlock::iterator end, ExprVector &side,
                  Expr act) override;
+
+  void execHyper(SymStore &s, const BasicBlock &bb, ExprVector &side, int hyper_k,
+                  seahorn::hyper_expr_map &hyper_vars);
 
   Expr symb(const Value &v) override;
   const Value &conc(Expr v) const override;

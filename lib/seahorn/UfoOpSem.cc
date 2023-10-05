@@ -1075,6 +1075,34 @@ struct OpSemPhiVisitor : public InstVisitor<OpSemPhiVisitor>, OpSemBase {
     }
   }
 }; // OpSemPhiVisitor
+
+struct OpSemHyperVisitor : public InstVisitor<OpSemHyperVisitor>, OpSemBase {
+  int hyper_k;
+  seahorn::hyper_expr_map &hyper_vars;
+
+  OpSemHyperVisitor(SymStore &s, UfoOpSem &sem, ExprVector &side, int hyper_k,
+                  seahorn::hyper_expr_map &hyper_vars)
+      : OpSemBase(s, sem, side), hyper_k(hyper_k), hyper_vars(hyper_vars) {}
+
+  void handleHyperGT(Expr var) {
+    if (hyper_k == 2) {
+      side(mk<GT>(hyper_vars[var][0], hyper_vars[var][1]));
+    } else
+      llvm::errs() << "Currently hyper properties supports only k=2.\n";
+  }
+
+  void visitCallBase(CallBase &CB) {
+    assert(isa<CallInst>(CB));
+    const Function *fn = CB.getCalledFunction();
+
+    if (fn && (fn->getName().equals("hyper.pre.gt") ||
+                fn->getName().equals("hyper.post.gt"))) {
+      Expr c = lookup(*CB.getOperand(0));
+      handleHyperGT(c);
+    } else
+      visitInstruction(CB);
+  }
+}; // OpSemHyperVisitor
 } // namespace
 
 namespace seahorn {
@@ -1093,6 +1121,15 @@ Expr UfoOpSem::memEnd(unsigned id) {
   Expr sort = sort::intTy(m_efac);
   return shadow_dsa::memEndVar(id, sort);
 }
+
+void UfoOpSem::execHyper(SymStore &s, const BasicBlock &bb, ExprVector &side,
+                          int hyper_k, seahorn::hyper_expr_map &hyper_vars) {
+  OpSemHyperVisitor v(s, *this, side, hyper_k, hyper_vars);
+  v.setActiveLit(trueE);
+  v.visit(const_cast<BasicBlock &>(bb));
+  v.resetActiveLit();
+}
+
 void UfoOpSem::exec(SymStore &s, const BasicBlock &bb, ExprVector &side,
                     Expr act) {
   OpSemVisitor v(s, *this, side);

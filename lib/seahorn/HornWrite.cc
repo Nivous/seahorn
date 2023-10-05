@@ -13,8 +13,6 @@ namespace seahorn {
 extern bool InterProcMemFmaps;
 }
 
-extern int HyperK;
-
 static llvm::cl::opt<bool> InternalWriter(
     "horn-fp-internal-writer",
     llvm::cl::desc("Use internal writer for Horn SMT2 format. (Default)"),
@@ -35,7 +33,7 @@ char HornWrite::ID = 0;
 
 void HornWrite::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addRequired<HornifyModule>();
-  if (HyperK > 1)
+  if (hyper_k > 1)
     AU.addRequired<KPropertyVerifier>();
   AU.setPreservesAll();
 }

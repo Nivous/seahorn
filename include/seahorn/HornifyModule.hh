@@ -19,6 +19,18 @@
 
 #include "seahorn/InterMemPreProc.hh"
 
+namespace hm_detail {
+enum Step {
+  SMALL_STEP,
+  LARGE_STEP,
+  CLP_SMALL_STEP,
+  CLP_FLAT_SMALL_STEP,
+  FLAT_SMALL_STEP,
+  FLAT_LARGE_STEP,
+  INC_SMALL_STEP
+};
+}
+
 namespace seahorn {
 using namespace expr;
 using namespace llvm;
@@ -44,9 +56,12 @@ protected:
   std::shared_ptr<InterMemPreProc> m_imPreProc = nullptr;
   ShadowMem *m_shadowMem = nullptr;
 
+  enum hm_detail::Step step_size;
+  int hyper_k;
+
 public:
   static char ID;
-  HornifyModule();
+  HornifyModule(int hyper_k);
   virtual ~HornifyModule() {}
   ExprFactory &getExprFactory() { return m_efac; }
   EZ3 &getZContext() { return m_zctx; }
@@ -98,6 +113,12 @@ public:
   SeaBuiltinsInfo &getSBI() {
     return getAnalysis<SeaBuiltinsInfoWrapperPass>().getSBI();
   }
+
+  enum hm_detail::Step getStepSize() {
+    return step_size;
+  }
+
+  int getHyperK() {return hyper_k;}
 };
 } // namespace seahorn
 

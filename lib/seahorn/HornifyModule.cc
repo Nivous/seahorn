@@ -173,6 +173,7 @@ bool HornifyModule::runOnModule(Module &M) {
   }
 
   step_size = Step;
+  m_interproc = InterProc;
 
   if (Step == hm_detail::CLP_SMALL_STEP ||
       Step == hm_detail::CLP_FLAT_SMALL_STEP)

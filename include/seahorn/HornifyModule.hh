@@ -58,6 +58,7 @@ protected:
 
   enum hm_detail::Step step_size;
   int hyper_k;
+  bool m_interproc;
 
 public:
   static char ID;
@@ -114,11 +115,11 @@ public:
     return getAnalysis<SeaBuiltinsInfoWrapperPass>().getSBI();
   }
 
-  enum hm_detail::Step getStepSize() {
-    return step_size;
-  }
+  enum hm_detail::Step getStepSize() {return step_size;}
 
   int getHyperK() {return hyper_k;}
+
+  bool getInterProc() {return m_interproc;}
 };
 } // namespace seahorn
 

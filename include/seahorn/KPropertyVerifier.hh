@@ -23,24 +23,40 @@ namespace seahorn
   class KPropertyVerifier : public llvm::ModulePass
   {
     int hyper_k;
+    bool m_interproc;
 
     void makeHyperVars(const ExprVector &vars, ExprFactory &m_efac, Module &M, hyper_expr_map &k_vars);
     void makeDoomedRels(hyper_expr_map &vars, Function *fn,
                         std::set<std::set<int>> &k_subsets, ExprFactory &m_efac,
                         hyper_subset_expr_map *doomed_rels);
-    void getHyperExprs(enum HyperProperties type, Module &M, ExprFactory &m_efac, const ExprVector &orig_vars);
-    void handleHyperGT(std::map<Expr, const BasicBlock *> *exprs, Expr var,  const BasicBlock *bb);
     void getHyperExprsFromFunction(Function &F, HornifyModule &hm, ExprFactory &m_efac, Module &M,
-                                                  DenseMap<const BasicBlock *, Expr> &pre_exprs,
-                                                  DenseMap<const BasicBlock *, Expr> &post_exprs,
-                                                  hyper_expr_map &k_vars);
+                                    hyper_expr_map &k_vars, std::set<std::set<int>> &k_subsets,
+                                    std::map<const Function *, std::map<int, Expr>> &pc_rels,
+                                    HornClauseDB::expr_set_type &pre_rules,
+                                    ExprVector &bad_rules,
+                                    std::map<std::set<int>, Expr> &valid_rules);
     void getHyperExprsModule(Module &M, HornifyModule &hm, ExprFactory &m_efac,
-                                            DenseMap<const BasicBlock *, Expr> &pre_exprs,
-                                            DenseMap<const BasicBlock *, Expr> &post_exprs,
-                                            hyper_expr_map &k_vars);
+                          hyper_expr_map &k_vars, std::set<std::set<int>> &k_subsets,
+                          std::map<const Function *, std::map<int, Expr>> &pc_rels,
+                          HornClauseDB::expr_set_type &pre_rules,
+                          ExprVector &bad_rules,
+                          std::map<std::set<int>, Expr> &valid_rules);
+    void getPcRels(const HornClauseDB::expr_set_type &orig_rels,
+                    std::map<const Function *, std::map<int, Expr>> &new_rels,
+                    ExprFactory &m_efac, Module &M);
+    void getValidExprs(std::map<std::set<int>, ExprVector> &obvPoint,
+                        std::set<std::set<int>> &k_subsets,
+                        std::map<std::set<int>, Expr> &valid_rules);
+    void getBadExprs(std::map<std::set<int>, ExprVector> &obvPoint,
+                      ExprVector &bad_rules,
+                      Expr post);
+    void getObservationPointExprs(std::map<std::set<int>, ExprVector> &obvPoint,
+                                  ExprVector &args, std::map<int, Expr> &steps,
+                                  std::set<std::set<int>> &k_subsets,
+                                  hyper_expr_map &k_vars);
   public:
     static char ID;
-    KPropertyVerifier (int hyper_k) : llvm::ModulePass (ID), hyper_k(hyper_k) {}
+    KPropertyVerifier (int hyper_k, bool interproc = false) : llvm::ModulePass (ID), hyper_k(hyper_k), m_interproc(interproc) {}
     virtual ~KPropertyVerifier() = default;
     virtual StringRef getPassName() const override {return "KPropertyVerifier";}
     

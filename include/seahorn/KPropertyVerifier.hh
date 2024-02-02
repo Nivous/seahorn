@@ -25,7 +25,7 @@ namespace seahorn
     int hyper_k;
     bool m_interproc;
 
-    void makeHyperVars(const ExprVector &vars, ExprFactory &m_efac, Module &M, hyper_expr_map &k_vars);
+    void makeHyperVars(const ExprVector &vars, ExprFactory &m_efac, Module &M, hyper_expr_map &k_vars, ExprVector &all_k_vars);
     void makeDoomedRels(hyper_expr_map &vars, Function *fn,
                         std::set<std::set<int>> &k_subsets, ExprFactory &m_efac,
                         hyper_subset_expr_map *doomed_rels);
@@ -43,7 +43,8 @@ namespace seahorn
                           std::map<std::set<int>, Expr> &valid_rules);
     void getPcRels(const HornClauseDB::expr_set_type &orig_rels,
                     std::map<const Function *, std::map<int, Expr>> &new_rels,
-                    ExprFactory &m_efac, Module &M);
+                    ExprFactory &m_efac, Module &M, hyper_expr_map &k_rels,
+                    std::map<const Function *, Expr>& pc_combined_rel);
     void getValidExprs(std::map<std::set<int>, ExprVector> &obvPoint,
                         std::set<std::set<int>> &k_subsets,
                         std::map<std::set<int>, Expr> &valid_rules);
@@ -54,6 +55,14 @@ namespace seahorn
                                   ExprVector &args, std::map<int, Expr> &steps,
                                   std::set<std::set<int>> &k_subsets,
                                   hyper_expr_map &k_vars);
+    void getTraceInfo(Module &M, std::map<const Function *, std::map<std::pair<int, int>, ExprVector[3]>> &trace_info,
+                      const HornClauseDB::expr_set_type &orig_rels, ExprFactory &m_efac,
+                      const HornClauseDB::RuleVector &rules);
+
+    void getTraceRules(ExprVector &all_k_vars, hyper_expr_map &k_vars, hyper_expr_map &k_rels,
+                        std::set<std::set<int>> &k_subsets, const HornClauseDB::RuleVector &rules,
+                        hyper_subset_expr_map &doomed_rels, HornClauseDB::RuleVector &trace_rules,
+                        HornClauseDB::expr_set_type &doomed_exprs_for_pre);
   public:
     static char ID;
     KPropertyVerifier (int hyper_k, bool interproc = false) : llvm::ModulePass (ID), hyper_k(hyper_k), m_interproc(interproc) {}

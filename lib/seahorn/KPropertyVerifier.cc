@@ -244,6 +244,31 @@ static void print_trace_info(std::map<const Function *, std::map<std::pair<int, 
   }
 }
 
+static void print_trace_rules(std::map<const Function *, std::map<std::pair<int, int>, std::map<int, Expr>>> &trace_rules) {
+  for (std::map<const Function *, std::map<std::pair<int, int>, std::map<int, Expr>>>::iterator it = trace_rules.begin();
+        it != trace_rules.end();
+        it++) {
+    if (it->first->hasName())
+      errs() << "Trace Rules for function: " << it->first->getName() << "\n";
+    else {
+      errs() << "Function:\n";
+      it->first->print(errs());
+    }
+    for (std::map<std::pair<int, int>, std::map<int, Expr>>::iterator it2 = it->second.begin();
+          it2 != it->second.end();
+          it2++) {
+      errs() << "Trace rules moving from src_bb_count = " << it2->first.first;
+      errs() << " and dst_bb_count = " << it2->first.second << " :\n";
+      for (std::map<int, Expr>::iterator it3 = it2->second.begin(); it3 != it2->second.end(); it3++) {
+        if (it3->second) {
+          errs() << "thread number = " << it3->first << ":\n";
+          errs() << *(it3->second) << "\n";
+        }
+      }
+    }
+  }
+}
+
 /**
  * @brief Get the Args From Fapp object
  *
@@ -296,6 +321,53 @@ static int getArgsFromBody(Expr e, Expr rel, ExprVector &args1, ExprVector &args
     pc = getArgsFromFapp(e, rel, args1);
 
   return pc;
+}
+
+/**
+ * @brief Convert singular expression to use variables variants from thread i
+ *
+ * @param e the original expression
+ * @param k_vars the map var -> var from thread i
+ * @param i the number of the thread
+ * @return the new expression
+ */
+static Expr getConvertedExprFromExpr(Expr e, hyper_expr_map &k_vars, int i) {
+  if (!e)
+    return Expr(0);
+
+  // Handle constants
+  if (isOpX<TRUE>(e) || isOpX<FALSE>(e) || isOpX<MPZ>(e))
+    return e;
+
+  if (k_vars.find(e) != k_vars.end())
+    return k_vars[e][i];
+
+  ExprVector side;
+  for (int j = 0; (unsigned int)j < e->arity(); j++)
+    side.push_back(getConvertedExprFromExpr(e->arg(j), k_vars, i));
+
+  return expr::mknary(e->op(), side.begin(), side.end());
+}
+
+/**
+ * @brief Get the Combined Expr from Narry AND expression.
+ * Also changes the variables to use variables variants from thread i.
+ *
+ * @param narry_and the ExprVector containing all expressions used in the Narry AND
+ * @param k_vars the map var -> var from thread i
+ * @param i number of the thread
+ * @return The combined expression
+ */
+static Expr getConvertedExprFromNarryAnd(ExprVector &narry_and, hyper_expr_map &k_vars, int i) {
+  ExprVector side; // Will hold the converted expressions
+
+  for (Expr e : narry_and)
+    side.push_back(getConvertedExprFromExpr(e, k_vars, i));
+
+  if (side.size() > 0)
+    return boolop::land(side);
+
+  return Expr(0);
 }
 
 static void generateSubsets(int n, std::set<int> &currentSubset, std::set<std::set<int>> &allSubsets, int index) {
@@ -674,6 +746,39 @@ void KPropertyVerifier::getTraceInfo(Module &M, std::map<const Function *, std::
   print_trace_info(trace_info);
 }
 
+/**
+ * @brief The purpose of this function is to process the rules in trace info for k-safety.
+ * The function should duplicate the rules but change each variable to the mathcing variable in thread i.
+ *
+ * @param trace_info the trace info already extracted, which contains the rules
+ * @param k_vars the map var -> var from thread i
+ * @param trace_rules the output of the function. the new mapping of rules to Expr that uses the relevant variables
+ */
+void KPropertyVerifier::getTraceRulesFromInfo(std::map<const Function *, std::map<std::pair<int, int>, ExprVector[3]>> &trace_info,
+                            hyper_expr_map &k_vars,
+                            std::map<const Function *, std::map<std::pair<int, int>, std::map<int, Expr>>> &trace_rules) {
+  for (std::map<const Function *, std::map<std::pair<int, int>, ExprVector[3]>>::iterator it = trace_info.begin();
+        it != trace_info.end();
+        it++) {
+    trace_rules[it->first] = std::map<std::pair<int, int>, std::map<int, Expr>>();
+    for (std::map<std::pair<int, int>, ExprVector[3]>::iterator it2 = it->second.begin();
+          it2 != it->second.end();
+          it2++) {
+      if (it2->second[1].size() == 0)
+        continue;
+
+      int src_bb_count = it2->first.first;
+      int dst_bb_count = it2->first.second;
+      trace_rules[it->first][std::pair<int, int>(src_bb_count, dst_bb_count)] = std::map<int, Expr>();
+      for (int i = 0; i < hyper_k; i++)
+        trace_rules[it->first][std::pair<int, int>(src_bb_count, dst_bb_count)][i] =
+          getConvertedExprFromNarryAnd(it2->second[1], k_vars, i);
+    }
+  }
+
+  print_trace_rules(trace_rules);
+}
+
 /*
 void KPropertyVerifier::getTraceRules(ExprVector &all_k_vars, hyper_expr_map &k_vars, hyper_expr_map &k_rels,
                                       std::set<std::set<int>> &k_subsets, const HornClauseDB::RuleVector &rules,
@@ -730,13 +835,16 @@ bool KPropertyVerifier::runOnModule(Module &M) {
   HornClauseDB::expr_set_type pre_rules;
   ExprVector bad_rules;
   std::map<std::set<int>, Expr> valid_rules;
-  HornClauseDB::RuleVector trace_rules;
   ExprVector all_k_vars;
   HornClauseDB::expr_set_type doomed_exprs_for_pre;
 
   /* This maps each function to a map (src_bb_count, dst_bb_count) ->
   (variables at entry, trace rules in block, variables at exit) */
   std::map<const Function *, std::map<std::pair<int, int>, ExprVector[3]>> trace_info;
+
+  /* This maps each function to a map (src_bb_count, dst_bb_count) ->
+  map from 0 <= i < k to the relevant trace rule from trace info in thread i variants */
+  std::map<const Function *, std::map<std::pair<int, int>, std::map<int, Expr>>> trace_rules;
 
   if (hm.getStepSize() != hm_detail::FLAT_SMALL_STEP) {
     errs() << "Currently hyper properties supports only flat small step [step = " << hm.getStepSize() << " ].\n";
@@ -763,6 +871,8 @@ bool KPropertyVerifier::runOnModule(Module &M) {
                       pre_rules, bad_rules, valid_rules);
 
   getTraceInfo(M, trace_info, rels, m_efac, rules);
+
+  getTraceRulesFromInfo(trace_info, k_vars, trace_rules);
 
   //getTraceRules(all_k_vars, k_vars, k_rels, k_subsets, rules, doomed_rels, trace_rules, doomed_exprs_for_pre);
 

@@ -22,7 +22,8 @@ void KPropertyVerifier::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.setPreservesAll();
 }
 
-static void print_vars(hyper_expr_map *k_vars) {
+static void print_vars(const Function *F, hyper_expr_map *k_vars) {
+  errs() << "The new variables for function: " << F->getName() << "\n";
   for(hyper_expr_map::iterator it = k_vars->begin(); it != k_vars->end(); ++it)
   {
     errs() << "The new variables created for var: " << *(it->first) << "\n";
@@ -82,58 +83,11 @@ static void print_hyper_rules(DenseMap<const BasicBlock *, Expr> &exprs, std::st
     errs() << "rule: " << *(it->second) << "\n";
 }
 
-static void print_duplicated_pc_rels(std::map<const Function *, std::map<int, Expr>> &new_rels) {
-  for(std::map<const Function *, std::map<int, Expr>>::iterator it = new_rels.begin(); it != new_rels.end(); ++it)
-  {
-    errs() << "The new duplicated pc rels for function: " << *(variant::mainVariant(bind::fname((it->second)[0]))) << "\n";
-    for(std::map<int, Expr>::iterator it2 = it->second.begin(); it2 != it->second.end(); ++it2) {
-      errs() << "i = " << it2->first << " : " << "\n";
-      Expr decl = it2->second;
-      errs() << "(declare-rel " << *bind::fname(decl) << " (";
-      for (unsigned i = 0; i < bind::domainSz(decl); i++) {
-        Expr ty = bind::domainTy(decl, i);
-        if (isOpX<BOOL_TY>(ty))
-          errs() << "Bool ";
-        else if (isOpX<REAL_TY>(ty))
-          errs() << "Real ";
-        else if (isOpX<INT_TY>(ty))
-          errs() << "Int ";
-        else if (isOpX<ARRAY_TY>(ty)) {
-          errs() << "(Array ";
-          if (isOpX<INT_TY>(sort::arrayIndexTy(ty)))
-            errs() << "Int ";
-          else if (isOpX<BVSORT>(sort::arrayIndexTy(ty))) {
-            errs() << "(_ BitVec " << bv::width(sort::arrayIndexTy(ty)) << ") ";
-          } else {
-            errs() << "UfoUnknownSort ";
-            llvm::errs() << "u1: " << *sort::arrayIndexTy(ty) << "\n";
-          }
-          if (isOpX<INT_TY>(sort::arrayValTy(ty)))
-            errs() << "Int";
-          else if (isOpX<BVSORT>(sort::arrayValTy(ty))) {
-            errs() << "(_ BitVec " << bv::width(sort::arrayValTy(ty)) << ") ";
-          } else {
-            errs() << "UfoUnknownSort";
-            llvm::errs() << "u2: " << *sort::arrayValTy(ty) << "\n";
-          }
-          errs() << ") ";
-        } else if (isOpX<BVSORT>(ty)) {
-          errs() << "(_ BitVec " << bv::width(ty) << ") ";
-        } else {
-          errs() << "UfoUnknownSort ";
-          llvm::errs() << "u3: " << *ty << "\n";
-        }
-      }
-      errs() << "))\n";
-    }
-  }
-}
-
-static void print_combined_pc_rels(std::map<const Function *, Expr> &new_rels) {
-  for(std::map<const Function *, Expr>::iterator it = new_rels.begin(); it != new_rels.end(); ++it)
-  {
-    Expr decl = it->second;
-    errs() << "The new combined pc rels for function: " << *(variant::mainVariant(bind::fname(decl))) << "\n";
+static void print_duplicated_pc_rels(const Function *F, std::map<int, Expr> &new_rels) {
+  errs() << "The new duplicated pc rels for function: " << F->getName() << "\n";
+  for(std::map<int, Expr>::iterator it2 = new_rels.begin(); it2 != new_rels.end(); ++it2) {
+    errs() << "i = " << it2->first << " : " << "\n";
+    Expr decl = it2->second;
     errs() << "(declare-rel " << *bind::fname(decl) << " (";
     for (unsigned i = 0; i < bind::domainSz(decl); i++) {
       Expr ty = bind::domainTy(decl, i);
@@ -173,7 +127,49 @@ static void print_combined_pc_rels(std::map<const Function *, Expr> &new_rels) {
   }
 }
 
-static void print_obv_exprs(std::map<std::set<int>, ExprVector> &obvPoint) {
+static void print_combined_pc_rels(const Function *F, Expr new_rel) {
+  Expr decl = new_rel;
+  errs() << "The new combined pc rels for function: " << F->getName() << "\n";
+  errs() << "(declare-rel " << *bind::fname(decl) << " (";
+  for (unsigned i = 0; i < bind::domainSz(decl); i++) {
+    Expr ty = bind::domainTy(decl, i);
+    if (isOpX<BOOL_TY>(ty))
+      errs() << "Bool ";
+    else if (isOpX<REAL_TY>(ty))
+      errs() << "Real ";
+    else if (isOpX<INT_TY>(ty))
+      errs() << "Int ";
+    else if (isOpX<ARRAY_TY>(ty)) {
+      errs() << "(Array ";
+      if (isOpX<INT_TY>(sort::arrayIndexTy(ty)))
+        errs() << "Int ";
+      else if (isOpX<BVSORT>(sort::arrayIndexTy(ty))) {
+        errs() << "(_ BitVec " << bv::width(sort::arrayIndexTy(ty)) << ") ";
+      } else {
+        errs() << "UfoUnknownSort ";
+        llvm::errs() << "u1: " << *sort::arrayIndexTy(ty) << "\n";
+      }
+      if (isOpX<INT_TY>(sort::arrayValTy(ty)))
+        errs() << "Int";
+      else if (isOpX<BVSORT>(sort::arrayValTy(ty))) {
+        errs() << "(_ BitVec " << bv::width(sort::arrayValTy(ty)) << ") ";
+      } else {
+        errs() << "UfoUnknownSort";
+        llvm::errs() << "u2: " << *sort::arrayValTy(ty) << "\n";
+      }
+      errs() << ") ";
+    } else if (isOpX<BVSORT>(ty)) {
+      errs() << "(_ BitVec " << bv::width(ty) << ") ";
+    } else {
+      errs() << "UfoUnknownSort ";
+      llvm::errs() << "u3: " << *ty << "\n";
+    }
+  }
+  errs() << "))\n";
+}
+
+static void print_obv_exprs(const Function *F, std::map<std::set<int>, ExprVector> &obvPoint) {
+  errs() << "Observation points expressions for function: " << F->getName() << "\n";
   for (std::map<std::set<int>, ExprVector>::iterator it = obvPoint.begin(); it != obvPoint.end(); it++) {
     errs() << "Observation point expressions for subset: ";
     for (int i: it->first) {
@@ -186,7 +182,8 @@ static void print_obv_exprs(std::map<std::set<int>, ExprVector> &obvPoint) {
   }
 }
 
-static void print_valid_rules(std::map<std::set<int>, Expr> &valid_rules) {
+static void print_valid_rules(const Function *F, std::map<std::set<int>, Expr> &valid_rules) {
+  errs() << "Valid expressions for function: " << F->getName() << "\n";
   for (std::map<std::set<int>, Expr>::iterator it = valid_rules.begin(); it != valid_rules.end(); it++) {
     errs() << "Valid expressions for subset: ";
     for (int i: it->first) {
@@ -196,74 +193,69 @@ static void print_valid_rules(std::map<std::set<int>, Expr> &valid_rules) {
   }
 }
 
-static void print_bad_rules(ExprVector &bad_rules) {
+static void print_bad_rules(const Function *F, ExprVector &bad_rules) {
+  errs() << "Bad expressions for function: " << F->getName() << "\n";
   errs() << "The bad rules are:\n";
   for (Expr e : bad_rules)
     errs() << *e << "\n";
 }
 
-static void print_pre_rules(HornClauseDB::expr_set_type &pre_rules) {
+static void print_pre_rules(const Function *F, HornClauseDB::expr_set_type &pre_rules) {
+  errs() << "Pre expressions for function: " << F->getName() << "\n";
   errs() << "Pre rules are:\n";
   for (Expr e : pre_rules)
     errs() << *e << "\n";
 }
 
-static void print_trace_info(std::map<const Function *, std::map<std::pair<int, int>, ExprVector[3]>> &trace_info) {
-  for (std::map<const Function *, std::map<std::pair<int, int>, ExprVector[3]>>::iterator it = trace_info.begin();
-        it != trace_info.end();
-        it++) {
-    if (it->first->hasName())
-      errs() << "Trace info for function: " << it->first->getName() << "\n";
-    else {
-      errs() << "Function:\n";
-      it->first->print(errs());
+static void print_trace_info(const Function *F, std::map<std::pair<int, int>, ExprVector[3]> &trace_info) {
+
+  if (F->hasName())
+    errs() << "Trace info for function: " << F->getName() << "\n";
+  else {
+    errs() << "Function:\n";
+    F->print(errs());
+  }
+  for (std::map<std::pair<int, int>, ExprVector[3]>::iterator it2 = trace_info.begin();
+        it2 != trace_info.end();
+        it2++) {
+    errs() << "Trace rule moving from src_bb_count = " << it2->first.first;
+    errs() << " and dst_bb_count = " << it2->first.second << " :\n";
+    errs() << "Args for source = {";
+    for (int i = 0; (unsigned int)i < it2->second[0].size(); i++) {
+      errs() << *(it2->second[0][i]);
+      if ((unsigned int)i != it2->second[0].size() - 1)
+        errs() << ", ";
     }
-    for (std::map<std::pair<int, int>, ExprVector[3]>::iterator it2 = it->second.begin();
-          it2 != it->second.end();
-          it2++) {
-      errs() << "Trace rule moving from src_bb_count = " << it2->first.first;
-      errs() << " and dst_bb_count = " << it2->first.second << " :\n";
-      errs() << "Args for source = {";
-      for (int i = 0; (unsigned int)i < it2->second[0].size(); i++) {
-        errs() << *(it2->second[0][i]);
-        if ((unsigned int)i != it2->second[0].size() - 1)
-          errs() << ", ";
-      }
-      errs() << "}\n";
-      errs() << "Logic formulas during block:\n";
-      for (int i = 0; (unsigned int)i < it2->second[1].size(); i++)
-        errs() << *(it2->second[1][i]) << "\n";
-      errs() << "Args for destination = {";
-      for (int i = 0; (unsigned int)i < it2->second[2].size(); i++) {
-        errs() << *(it2->second[2][i]);
-        if ((unsigned int)i != it2->second[2].size() - 1)
-          errs() << ", ";
-      }
-      errs() << "}\n";
+    errs() << "}\n";
+    errs() << "Logic formulas during block:\n";
+    for (int i = 0; (unsigned int)i < it2->second[1].size(); i++)
+      errs() << *(it2->second[1][i]) << "\n";
+    errs() << "Args for destination = {";
+    for (int i = 0; (unsigned int)i < it2->second[2].size(); i++) {
+      errs() << *(it2->second[2][i]);
+      if ((unsigned int)i != it2->second[2].size() - 1)
+        errs() << ", ";
     }
+    errs() << "}\n";
   }
 }
 
-static void print_trace_rules(std::map<const Function *, std::map<std::pair<int, int>, std::map<int, Expr>>> &trace_rules) {
-  for (std::map<const Function *, std::map<std::pair<int, int>, std::map<int, Expr>>>::iterator it = trace_rules.begin();
-        it != trace_rules.end();
-        it++) {
-    if (it->first->hasName())
-      errs() << "Trace Rules for function: " << it->first->getName() << "\n";
-    else {
-      errs() << "Function:\n";
-      it->first->print(errs());
-    }
-    for (std::map<std::pair<int, int>, std::map<int, Expr>>::iterator it2 = it->second.begin();
-          it2 != it->second.end();
-          it2++) {
-      errs() << "Trace rules moving from src_bb_count = " << it2->first.first;
-      errs() << " and dst_bb_count = " << it2->first.second << " :\n";
-      for (std::map<int, Expr>::iterator it3 = it2->second.begin(); it3 != it2->second.end(); it3++) {
-        if (it3->second) {
-          errs() << "thread number = " << it3->first << ":\n";
-          errs() << *(it3->second) << "\n";
-        }
+static void print_trace_rules(const Function *F, std::map<std::pair<int, int>, std::map<int, Expr>> &trace_rules) {
+  if (F->hasName())
+    errs() << "Trace Rules for function: " << F->getName() << "\n";
+  else {
+    errs() << "Function:\n";
+    F->print(errs());
+  }
+  for (std::map<std::pair<int, int>, std::map<int, Expr>>::iterator it2 = trace_rules.begin();
+        it2 != trace_rules.end();
+        it2++) {
+    errs() << "Trace rules moving from src_bb_count = " << it2->first.first;
+    errs() << " and dst_bb_count = " << it2->first.second << " :\n";
+    for (std::map<int, Expr>::iterator it3 = it2->second.begin(); it3 != it2->second.end(); it3++) {
+      if (it3->second) {
+        errs() << "thread number = " << it3->first << ":\n";
+        errs() << *(it3->second) << "\n";
       }
     }
   }
@@ -425,14 +417,20 @@ static Expr getDestinationPC(Expr e) {
   return *fappArgs;
 }
 
-void KPropertyVerifier::makeHyperVars(const ExprVector &vars, ExprFactory &m_efac, Module &M, hyper_expr_map &k_vars,
-                                      ExprVector &all_k_vars) {
+void KPropertyVerifier::makeHyperVars(const Function *F, const ExprVector &vars, ExprFactory &m_efac, Module &M,
+                                      hyper_expr_map &k_vars, ExprVector &all_k_vars) {
   int i;
   Expr new_var;
 
   for (const Expr &var : vars) {
-    k_vars.insert(std::pair<Expr, std::map<int, Expr>>(var, std::map<int, Expr>()));
+    std::stringstream st;
+    st << *bind::fname(var->left());
+    std::string var_name = st.str();
+    std::string func_name = F->getName().str();
+    if (var_name.find(func_name) == std::string::npos)
+      continue;
 
+    k_vars.insert(std::pair<Expr, std::map<int, Expr>>(var, std::map<int, Expr>()));
     for (i = 0; i < hyper_k; i++) {
       Expr fdecl = bind::fname(var);
       Expr fname = bind::fname(fdecl);
@@ -443,7 +441,7 @@ void KPropertyVerifier::makeHyperVars(const ExprVector &vars, ExprFactory &m_efa
     }
   }
 
-  print_vars(&k_vars);
+  print_vars(F, &k_vars);
 }
 
 void KPropertyVerifier::makeDoomedRels(hyper_expr_map &vars, Function *fn,
@@ -535,16 +533,16 @@ void KPropertyVerifier::getValidExprs(std::map<std::set<int>, ExprVector> &obvPo
   }
 }
 
-void KPropertyVerifier::getHyperExprsFromFunction(Function &F, HornifyModule &hm, ExprFactory &m_efac, Module &M,
+void KPropertyVerifier::getHyperExprsFromFunction(const Function *F, HornifyModule &hm, ExprFactory &m_efac, Module &M,
                                                   hyper_expr_map &k_vars, std::set<std::set<int>> &k_subsets,
-                                                  std::map<const Function *, std::map<int, Expr>> &pc_rels,
+                                                  std::map<int, Expr> &pc_rels,
                                                   HornClauseDB::expr_set_type &pre_rules,
                                                   ExprVector &bad_rules,
                                                   std::map<std::set<int>, Expr> &valid_rules,
-                                                  std::map<const Function *, int> &max_pc) {
-  const LiveSymbols &ls = hm.getLiveSybols(F);
+                                                  int *max_pc) {
+  const LiveSymbols &ls = hm.getLiveSybols(*F);
   UfoOpSem m_sem(m_efac, hm, M.getDataLayout());
-  std::map<int, Expr> steps = pc_rels[&F];
+  std::map<int, Expr> steps = pc_rels;
   std::map<std::set<int>, ExprVector> obvPoint;
   int count = 0;
 
@@ -553,7 +551,7 @@ void KPropertyVerifier::getHyperExprsFromFunction(Function &F, HornifyModule &hm
   // globally live
   ExprSet glive;
 
-  for (auto &BB : F) {
+  for (auto &BB : *F) {
     auto &live = ls.live(&BB);
     glive.insert(live.begin(), live.end());
   }
@@ -566,7 +564,7 @@ void KPropertyVerifier::getHyperExprsFromFunction(Function &F, HornifyModule &hm
     args.push_back(s.read(v));
   allVars.insert(args.begin(), args.end());
 
-  for (auto &BB : F) {
+  for (auto &BB : *F) {
     const BasicBlock *bb = &BB;
     for (const BasicBlock *dst : succs(*bb)) {
       allVars.clear();
@@ -605,30 +603,16 @@ void KPropertyVerifier::getHyperExprsFromFunction(Function &F, HornifyModule &hm
         getBadExprs(obvPoint, bad_rules, side[0]);
         getValidExprs(obvPoint, k_subsets, valid_rules);
 
-        max_pc[&F] = count;
+        *max_pc = count;
       }
     }
 
     count++;
   }
-  print_obv_exprs(obvPoint);
-}
-
-void KPropertyVerifier::getHyperExprsModule(Module &M, HornifyModule &hm, ExprFactory &m_efac,
-                                            hyper_expr_map &k_vars, std::set<std::set<int>> &k_subsets,
-                                            std::map<const Function *, std::map<int, Expr>> &pc_rels,
-                                            HornClauseDB::expr_set_type &pre_rules,
-                                            ExprVector &bad_rules,
-                                            std::map<std::set<int>, Expr> &valid_rules,
-                                            std::map<const Function *, int> &max_pc) {
-  for (Function &F : M) {
-    if (!F.empty())
-      getHyperExprsFromFunction(F, hm, m_efac, M, k_vars, k_subsets, pc_rels,
-                                pre_rules, bad_rules, valid_rules, max_pc);
-  }
-  print_pre_rules(pre_rules);
-  print_bad_rules(bad_rules);
-  print_valid_rules(valid_rules);
+  print_obv_exprs(F, obvPoint);
+  print_pre_rules(F, pre_rules);
+  print_bad_rules(F, bad_rules);
+  print_valid_rules(F, valid_rules);
 }
 
 /**
@@ -639,62 +623,55 @@ void KPropertyVerifier::getHyperExprsModule(Module &M, HornifyModule &hm, ExprFa
  *
  * @param orig_rels All the relations generate by the hornify module pass.
  * @param new_rels One of the outputs of the function. Will hold the individual duplicated relations for each thread
- * It will hold a map between function to another map which maps i -> relation of thread i
+ * It will hold a maps i -> relation of thread i
  * @param m_efac Expr factory
- * @param M The module
+ * @param M The Functino
  * @param k_rels One of the outputs of the function. Will hold the individual duplicated relations for each thread.
  * It will hold a map between the original relation to another map which maps i -> relation of thread i
  * @param pc_combined_rel One of the outputs of the function. Will hold the combined relations for all the threads
  * It will hold a map between the function to the relevant relation
  */
-void KPropertyVerifier::getPcRels(const HornClauseDB::expr_set_type &orig_rels,
-                                  std::map<const Function *, std::map<int, Expr>> &new_rels,
-                                  ExprFactory &m_efac, Module &M, hyper_expr_map &k_rels,
-                                  std::map<const Function *, Expr>& pc_combined_rel) {
-  for (Function &F : M) {
-    // Skip empty functions
-    if (F.empty())
-      continue;
+void KPropertyVerifier::getPcRels(const Function *F, const HornClauseDB::expr_set_type &orig_rels,
+                                  std::map<int, Expr> &new_rels, ExprFactory &m_efac, hyper_expr_map &k_rels,
+                                  Expr pc_combined_rel) {
+  // Getting the name of the relation as created in hornify module pass
+  Expr name = mkTerm<const Function *>(F, m_efac);
+  if (m_interproc)
+    name = variant::prime(name);
 
-    // Getting the name of the relation as created in hornify module pass
-    Expr name = mkTerm<const Function *>(&F, m_efac);
-    if (m_interproc)
-      name = variant::prime(name);
+  Expr rel = getFunctionRelFromDB(orig_rels, name);
+  k_rels[rel] = std::map<int, Expr>();
 
-    Expr rel = getFunctionRelFromDB(orig_rels, name);
-    new_rels[&F] = std::map<int, Expr>();
-    k_rels[rel] = std::map<int, Expr>();
-
-    // Creating the individual duplicated relations
-    for (int i = 0; i < hyper_k; i++) {
-      std::string suffix = "_thread_" + std::to_string(i);
-      Expr new_name = variant::tag(name, suffix);
-      Expr fdecl = bind::rename(rel, new_name);
-      new_rels[&F][i] = fdecl;
-      k_rels[rel][i] = fdecl;
-    }
-
-    // Creating the combined relation
-    ExprVector sorts;
-    for (int i = 0; (unsigned int)i < bind::domainSz(rel); i++) {
-      for (int j = 0; j < hyper_k; j++) {
-        sorts.push_back(bind::domainTy(rel, i));
-      }
-    }
-
-    sorts.push_back(mk<BOOL_TY>(m_efac));
-    Expr new_name = variant::tag(name, "hyper");
-    Expr fdecl = bind::fdecl(new_name, sorts);
-    pc_combined_rel[&F] = fdecl;
+  // Creating the individual duplicated relations
+  for (int i = 0; i < hyper_k; i++) {
+    std::string suffix = "_thread_" + std::to_string(i);
+    Expr new_name = variant::tag(name, suffix);
+    Expr fdecl = bind::rename(rel, new_name);
+    new_rels[i] = fdecl;
+    k_rels[rel][i] = fdecl;
   }
-  print_duplicated_pc_rels(new_rels);
-  print_combined_pc_rels(pc_combined_rel);
+
+  // Creating the combined relation
+  ExprVector sorts;
+  for (int i = 0; (unsigned int)i < bind::domainSz(rel); i++) {
+    for (int j = 0; j < hyper_k; j++) {
+      sorts.push_back(bind::domainTy(rel, i));
+    }
+  }
+
+  sorts.push_back(mk<BOOL_TY>(m_efac));
+  Expr new_name = variant::tag(name, "hyper");
+  Expr fdecl = bind::fdecl(new_name, sorts);
+  pc_combined_rel = fdecl;
+
+  print_duplicated_pc_rels(F, new_rels);
+  print_combined_pc_rels(F, pc_combined_rel);
 }
 
 /**
  * @brief Get the Trace Info from the module
  * As described in the main function of the pass the trace info contains the following:
- * a map: function -> a map: (src_bb_count, dst_bb_count) -> 3 Expr Vectors
+ * a map: (src_bb_count, dst_bb_count) -> 3 Expr Vectors
  * The first expr vector contains the variables used for the fapp in the src_bb_count block of function f
  * the second expr vector contains all the logic formulas derived from this block during hornify module pass
  * The third expr vector contains the variables used for the fapp in the dst_bb_count block of function f
@@ -705,49 +682,41 @@ void KPropertyVerifier::getPcRels(const HornClauseDB::expr_set_type &orig_rels,
  * @param m_efac  Expr factory
  * @param rules the original rules from the hornify module pass
  */
-void KPropertyVerifier::getTraceInfo(Module &M, std::map<const Function *, std::map<std::pair<int, int>, ExprVector[3]>> &trace_info,
-                  const HornClauseDB::expr_set_type &orig_rels, ExprFactory &m_efac,
-                  const HornClauseDB::RuleVector &rules) {
-  for (Function &F : M) {
-    // Skip empty functions
-    if (F.empty())
+void KPropertyVerifier::getTraceInfo(const Function *F, std::map<std::pair<int, int>, ExprVector[3]> &trace_info,
+                                      const HornClauseDB::expr_set_type &orig_rels, ExprFactory &m_efac,
+                                      const HornClauseDB::RuleVector &rules) {
+  // Getting the name of the relation as created in hornify module pass
+  Expr name = mkTerm<const Function *>(F, m_efac);
+  if (m_interproc)
+    name = variant::prime(name);
+
+  Expr rel = getFunctionRelFromDB(orig_rels, name);
+
+  for (HornRule rule : rules) {
+    int dst_bb_count = -1, src_bb_count;
+    Expr head = rule.head();
+    Expr body = rule.body();
+
+    ExprVector args1;
+    ExprVector args2;
+    ExprVector args3;
+
+    if (bind::isFapp(head))
+      dst_bb_count = getArgsFromFapp(head, rel, args3);
+
+    if (dst_bb_count < 0)
       continue;
 
-    trace_info[&F] = std::map<std::pair<int, int>, ExprVector[3]>();
+    src_bb_count = getArgsFromBody(body, rel, args1, args2);
+    if (src_bb_count < 0)
+      continue;
 
-    // Getting the name of the relation as created in hornify module pass
-    Expr name = mkTerm<const Function *>(&F, m_efac);
-    if (m_interproc)
-      name = variant::prime(name);
-
-    Expr rel = getFunctionRelFromDB(orig_rels, name);
-
-    for (HornRule rule : rules) {
-      int dst_bb_count = -1, src_bb_count;
-      Expr head = rule.head();
-      Expr body = rule.body();
-
-      ExprVector args1;
-      ExprVector args2;
-      ExprVector args3;
-
-      if (bind::isFapp(head))
-        dst_bb_count = getArgsFromFapp(head, rel, args3);
-
-      if (dst_bb_count < 0)
-        continue;
-
-      src_bb_count = getArgsFromBody(body, rel, args1, args2);
-      if (src_bb_count < 0)
-        continue;
-
-      trace_info[&F][std::pair<int,int>(src_bb_count, dst_bb_count)][0] = args1;
-      trace_info[&F][std::pair<int,int>(src_bb_count, dst_bb_count)][1] = args2;
-      trace_info[&F][std::pair<int,int>(src_bb_count, dst_bb_count)][2] = args3;
-    }
+    trace_info[std::pair<int,int>(src_bb_count, dst_bb_count)][0] = args1;
+    trace_info[std::pair<int,int>(src_bb_count, dst_bb_count)][1] = args2;
+    trace_info[std::pair<int,int>(src_bb_count, dst_bb_count)][2] = args3;
   }
 
-  print_trace_info(trace_info);
+  print_trace_info(F, trace_info);
 }
 
 /**
@@ -758,114 +727,143 @@ void KPropertyVerifier::getTraceInfo(Module &M, std::map<const Function *, std::
  * @param k_vars the map var -> var from thread i
  * @param trace_rules the output of the function. the new mapping of rules to Expr that uses the relevant variables
  */
-void KPropertyVerifier::getTraceRulesFromInfo(std::map<const Function *, std::map<std::pair<int, int>, ExprVector[3]>> &trace_info,
-                            hyper_expr_map &k_vars,
-                            std::map<const Function *, std::map<std::pair<int, int>, std::map<int, Expr>>> &trace_rules) {
-  for (std::map<const Function *, std::map<std::pair<int, int>, ExprVector[3]>>::iterator it = trace_info.begin();
-        it != trace_info.end();
-        it++) {
-    trace_rules[it->first] = std::map<std::pair<int, int>, std::map<int, Expr>>();
-    for (std::map<std::pair<int, int>, ExprVector[3]>::iterator it2 = it->second.begin();
-          it2 != it->second.end();
-          it2++) {
-      if (it2->second[1].size() == 0)
-        continue;
+void KPropertyVerifier::getTraceRulesFromInfo(const Function *F,
+                            std::map<std::pair<int, int>, ExprVector[3]> &trace_info, hyper_expr_map &k_vars,
+                            std::map<std::pair<int, int>, std::map<int, Expr>> &trace_rules) {
+  for (std::map<std::pair<int, int>, ExprVector[3]>::iterator it2 = trace_info.begin();
+        it2 != trace_info.end();
+        it2++) {
+    if (it2->second[1].size() == 0)
+      continue;
 
-      int src_bb_count = it2->first.first;
-      int dst_bb_count = it2->first.second;
-      trace_rules[it->first][std::pair<int, int>(src_bb_count, dst_bb_count)] = std::map<int, Expr>();
-      for (int i = 0; i < hyper_k; i++)
-        trace_rules[it->first][std::pair<int, int>(src_bb_count, dst_bb_count)][i] =
-          getConvertedExprFromNarryAnd(it2->second[1], k_vars, i);
-    }
+    int src_bb_count = it2->first.first;
+    int dst_bb_count = it2->first.second;
+    trace_rules[std::pair<int, int>(src_bb_count, dst_bb_count)] = std::map<int, Expr>();
+    for (int i = 0; i < hyper_k; i++)
+      trace_rules[std::pair<int, int>(src_bb_count, dst_bb_count)][i] =
+        getConvertedExprFromNarryAnd(it2->second[1], k_vars, i);
   }
 
-  print_trace_rules(trace_rules);
+  print_trace_rules(F, trace_rules);
 }
 
 
-void KPropertyVerifier::getTraceRules(ExprVector &all_k_vars, hyper_expr_map &k_vars, hyper_expr_map &k_rels,
-                        std::set<std::set<int>> &k_subsets,
-                        std::map<const Function *, std::map<std::pair<int, int>, ExprVector[3]>>& trace_info,
-                        hyper_subset_expr_map &doomed_rels,
-                        std::map<const Function *, std::map<std::pair<int, int>, std::map<int, Expr>>> &trace_rules,
-                        std::map<const Function *, int> &max_pc,
-                        std::map<std::pair<int, int>, std::map<std::set<int>, Expr>> &final_trace_rules) {
+void KPropertyVerifier::getTraceRules(const Function *F, ExprVector &all_k_vars, hyper_expr_map &k_vars,
+                                      hyper_expr_map &k_rels,
+                                      std::set<std::set<int>> &k_subsets,
+                                      std::map<std::pair<int, int>, ExprVector[3]>& trace_info,
+                                      hyper_subset_expr_map &doomed_rels,
+                                      std::map<std::pair<int, int>, std::map<int, Expr>> &trace_rules,
+                                      int max_pc,
+                                      std::map<std::pair<int, int>, std::map<std::set<int>, Expr>> &final_trace_rules) {
 
 }
 
 bool KPropertyVerifier::runOnModule(Module &M) {
   ScopedStats _st_("KPropertyVerifier");
   HornifyModule &hm = getAnalysis<HornifyModule>();
+
+    if (hm.getStepSize() != hm_detail::FLAT_SMALL_STEP) {
+    errs() << "Currently hyper properties supports only flat small step [step = " << hm.getStepSize() << " ].\n";
+    return true;
+  }
+
   HornClauseDB &db = hm.getHornClauseDB();
-  // Need to reset the DB after using it - add a function to reset.
-  ExprFactory &m_efac = hm.getExprFactory();
-  //EZ3 &z3 = hm.getZContext();
+  const ExprVector &vars = db.getVars();
+  const HornClauseDB::RuleVector &rules = db.getRules();
+  const HornClauseDB::expr_set_type &rels = db.getRelations();
+
+  struct functionResultAggregator out;
 
   m_interproc = hm.getInterProc();
+  ExprFactory &m_efac = hm.getExprFactory();
 
+  std::set<std::set<int>> k_subsets = generateAllSubsets(hyper_k);
+
+  for (Function &F : M) {
+    // Skip empty functions
+    if (F.empty())
+      continue;
+    
+    runOnFunction(&F, m_efac, vars, rules, rels, k_subsets, hm, M, &out);
+  }
+
+  db.resetDB();
+
+  for (Expr rel: out.relations)
+    db.registerRelation(rel);
+
+  for (HornRule rule: out.rules)
+    db.addRule(rule);
+  
+  return true;
+}
+
+void KPropertyVerifier::runOnFunction(const Function *F, ExprFactory &m_efac, const ExprVector &vars,
+                                      const HornClauseDB::RuleVector &rules, const HornClauseDB::expr_set_type &rels,
+                                      std::set<std::set<int>> &k_subsets, HornifyModule &hm, Module &M,
+                                      struct functionResultAggregator *out)
+{
+  /* maps variable -> (map i-> variable variant in thread i) */
   hyper_expr_map k_vars;
+  /* maps relation -> (map i-> relation variant in thread i) */
   hyper_expr_map k_rels;
+  /* all doomed relations */
   hyper_subset_expr_map doomed_rels;
-  std::map<const Function *, std::map<int, Expr>> pc_rels;
-  std::map<const Function *, Expr> pc_combined_rel;
+  /* maps i -> function relation variant of thread i */
+  std::map<int, Expr> pc_rels;
+  /* combined relation for all threads for this function*/
+  Expr pc_combined_rel;
+  /* all pre rules */
   HornClauseDB::expr_set_type pre_rules;
+  /* all bad rules */
   ExprVector bad_rules;
+  /* maps subset of k -> valid expression for this subset */
+  //TODO:: We might have an issue with this expression
   std::map<std::set<int>, Expr> valid_rules;
+  /* all variables variants for this function */
   ExprVector all_k_vars;
+  /* maximum pc for this function*/
+  int max_pc_for_function;
 
   /* This map should hold the final trace rules in the reduction
   (src_bb_count, dst_bb_count) -> (subset -> rule) */
   std::map<std::pair<int, int>, std::map<std::set<int>, Expr>> final_trace_rules;
 
-  /* Should hold the pc of the last post call for each function*/
-  std::map<const Function *, int> max_pc;
-
   /* The first type of expression in the reduction:
   All threads are doomed and pre => bottom*/
   Expr doomed_pre_expr;
 
-  /* This maps each function to a map (src_bb_count, dst_bb_count) ->
+  /* This maps (src_bb_count, dst_bb_count) ->
   (variables at entry, trace rules in block, variables at exit) */
-  std::map<const Function *, std::map<std::pair<int, int>, ExprVector[3]>> trace_info;
+  std::map<std::pair<int, int>, ExprVector[3]> trace_info;
 
-  /* This maps each function to a map (src_bb_count, dst_bb_count) ->
+  /* This maps (src_bb_count, dst_bb_count) ->
   map from 0 <= i < k to the relevant trace rule from trace info in thread i variants */
-  std::map<const Function *, std::map<std::pair<int, int>, std::map<int, Expr>>> trace_rules;
+  std::map<std::pair<int, int>, std::map<int, Expr>> trace_rules;
 
-  if (hm.getStepSize() != hm_detail::FLAT_SMALL_STEP) {
-    errs() << "Currently hyper properties supports only flat small step [step = " << hm.getStepSize() << " ].\n";
-    return true;
-  }
-
-  const ExprVector &vars = db.getVars();
-  const HornClauseDB::RuleVector &rules = db.getRules();
-  const HornClauseDB::expr_set_type &rels = db.getRelations();
-
-  makeHyperVars(vars, m_efac, M, k_vars, all_k_vars); /* Get new vars */
+  makeHyperVars(F, vars, m_efac, M, k_vars, all_k_vars); /* Get new vars */
 
   /* Insert doomed state function to symbol table */
-  auto FC = M.getOrInsertFunction(DOOMED_STATE_FUNCTION_NAME, Type::getVoidTy(M.getContext()));
+  std::string doomed_name = std::string(DOOMED_STATE_FUNCTION_NAME) + std::string("_") + F->getName().str();
+  auto FC = M.getOrInsertFunction(doomed_name, Type::getVoidTy(M.getContext()));
   auto *FN = dyn_cast<Function>(FC.getCallee());
-
-  std::set<std::set<int>> k_subsets = generateAllSubsets(hyper_k);
 
   makeDoomedRels(k_vars, FN, k_subsets, m_efac, &doomed_rels);
 
-  getPcRels(rels, pc_rels, m_efac, M, k_rels, pc_combined_rel);
+  getPcRels(F, rels, pc_rels, m_efac, k_rels, pc_combined_rel);
 
-  getHyperExprsModule(M, hm, m_efac, k_vars, k_subsets, pc_rels,
-                      pre_rules, bad_rules, valid_rules, max_pc);
+  getHyperExprsFromFunction(F, hm, m_efac, M, k_vars, k_subsets, pc_rels,
+                            pre_rules, bad_rules, valid_rules, &max_pc_for_function);
 
-  getTraceInfo(M, trace_info, rels, m_efac, rules);
+  getTraceInfo(F, trace_info, rels, m_efac, rules);
 
-  getTraceRulesFromInfo(trace_info, k_vars, trace_rules);
+  getTraceRulesFromInfo(F, trace_info, k_vars, trace_rules);
 
   //getDoomedPreExpr(pre_rules, doomed_rels, all_k_vars, )
 
-  getTraceRules(all_k_vars, k_vars, k_rels, k_subsets, trace_info, doomed_rels, trace_rules, max_pc, final_trace_rules);
-
-  return true;
+  getTraceRules(F, all_k_vars, k_vars, k_rels, k_subsets, trace_info, doomed_rels, trace_rules,
+                max_pc_for_function, final_trace_rules);  
 }
 
 }

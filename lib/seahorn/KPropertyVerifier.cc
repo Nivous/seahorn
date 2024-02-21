@@ -540,7 +540,8 @@ void KPropertyVerifier::getHyperExprsFromFunction(Function &F, HornifyModule &hm
                                                   std::map<const Function *, std::map<int, Expr>> &pc_rels,
                                                   HornClauseDB::expr_set_type &pre_rules,
                                                   ExprVector &bad_rules,
-                                                  std::map<std::set<int>, Expr> &valid_rules) {
+                                                  std::map<std::set<int>, Expr> &valid_rules,
+                                                  std::map<const Function *, int> &max_pc) {
   const LiveSymbols &ls = hm.getLiveSybols(F);
   UfoOpSem m_sem(m_efac, hm, M.getDataLayout());
   std::map<int, Expr> steps = pc_rels[&F];
@@ -580,8 +581,6 @@ void KPropertyVerifier::getHyperExprsFromFunction(Function &F, HornifyModule &hm
       allVars.insert(++args.begin(), args.end());
       assert(std::all_of(allVars.begin(), allVars.end(), bind::IsConst()));
 
-      count++;
-
       // TODO: Implement more hyper functions
       // Analyze block
       ExprVector side;
@@ -605,8 +604,12 @@ void KPropertyVerifier::getHyperExprsFromFunction(Function &F, HornifyModule &hm
         getObservationPointExprs(obvPoint, args, steps, k_subsets, k_vars);
         getBadExprs(obvPoint, bad_rules, side[0]);
         getValidExprs(obvPoint, k_subsets, valid_rules);
+
+        max_pc[&F] = count;
       }
     }
+
+    count++;
   }
   print_obv_exprs(obvPoint);
 }
@@ -616,11 +619,12 @@ void KPropertyVerifier::getHyperExprsModule(Module &M, HornifyModule &hm, ExprFa
                                             std::map<const Function *, std::map<int, Expr>> &pc_rels,
                                             HornClauseDB::expr_set_type &pre_rules,
                                             ExprVector &bad_rules,
-                                            std::map<std::set<int>, Expr> &valid_rules) {
+                                            std::map<std::set<int>, Expr> &valid_rules,
+                                            std::map<const Function *, int> &max_pc) {
   for (Function &F : M) {
     if (!F.empty())
       getHyperExprsFromFunction(F, hm, m_efac, M, k_vars, k_subsets, pc_rels,
-                                pre_rules, bad_rules, valid_rules);
+                                pre_rules, bad_rules, valid_rules, max_pc);
   }
   print_pre_rules(pre_rules);
   print_bad_rules(bad_rules);
@@ -779,43 +783,16 @@ void KPropertyVerifier::getTraceRulesFromInfo(std::map<const Function *, std::ma
   print_trace_rules(trace_rules);
 }
 
-/*
+
 void KPropertyVerifier::getTraceRules(ExprVector &all_k_vars, hyper_expr_map &k_vars, hyper_expr_map &k_rels,
-                                      std::set<std::set<int>> &k_subsets, const HornClauseDB::RuleVector &rules,
-                                      hyper_subset_expr_map &doomed_rels, HornClauseDB::RuleVector &trace_rules,
-                                      HornClauseDB::expr_set_type &doomed_exprs_for_pre) {
-  std::stringstream st;
-  std::string name;
-  for (HornRule rule : rules) {
-    Expr head = rule.head();
-    Expr body = rule.body();
-    st << *head;
-    name = st.str();
-    st.str(std::string());
+                        std::set<std::set<int>> &k_subsets,
+                        std::map<const Function *, std::map<std::pair<int, int>, ExprVector[3]>>& trace_info,
+                        hyper_subset_expr_map &doomed_rels,
+                        std::map<const Function *, std::map<std::pair<int, int>, std::map<int, Expr>>> &trace_rules,
+                        std::map<const Function *, int> &max_pc,
+                        std::map<std::pair<int, int>, std::map<std::set<int>, Expr>> &final_trace_rules) {
 
-    if (name == "verifier.error")
-      continue;
-
-    Expr dest_pc = getDestinationPC(head);
-    Expr src_pc = getDestinationPC(body);
-
-    for (std::set<int> subset : k_subsets) {
-      ExprVector body_exprs = convertExprs(body, subset, k_vars, k_rels);
-      ExprVector doomed_rels_after = getDoomedRelsFAPP(doomed_rels, subset, src_pc, dest_pc, k_vars);
-      ExprVector doomed_rels_before = getDoomedRelsFAPP(doomed_rels, subset, src_pc, src_pc, k_vars);
-
-      Expr new_body = boolop::land(boolop::land(body_exprs), boolop::land(doomed_rels_after));
-      Expr new_head = boolop::land(doomed_rels_before);
-
-      HornRule r = HornRule(all_k_vars, new_head, new_body);
-      trace_rules.push_back(r);
-
-      doomed_exprs_for_pre.insert(boolop::land(doomed_rels_before));
-    }
-  }
 }
-
-*/
 
 bool KPropertyVerifier::runOnModule(Module &M) {
   ScopedStats _st_("KPropertyVerifier");
@@ -836,7 +813,17 @@ bool KPropertyVerifier::runOnModule(Module &M) {
   ExprVector bad_rules;
   std::map<std::set<int>, Expr> valid_rules;
   ExprVector all_k_vars;
-  HornClauseDB::expr_set_type doomed_exprs_for_pre;
+
+  /* This map should hold the final trace rules in the reduction
+  (src_bb_count, dst_bb_count) -> (subset -> rule) */
+  std::map<std::pair<int, int>, std::map<std::set<int>, Expr>> final_trace_rules;
+
+  /* Should hold the pc of the last post call for each function*/
+  std::map<const Function *, int> max_pc;
+
+  /* The first type of expression in the reduction:
+  All threads are doomed and pre => bottom*/
+  Expr doomed_pre_expr;
 
   /* This maps each function to a map (src_bb_count, dst_bb_count) ->
   (variables at entry, trace rules in block, variables at exit) */
@@ -868,13 +855,15 @@ bool KPropertyVerifier::runOnModule(Module &M) {
   getPcRels(rels, pc_rels, m_efac, M, k_rels, pc_combined_rel);
 
   getHyperExprsModule(M, hm, m_efac, k_vars, k_subsets, pc_rels,
-                      pre_rules, bad_rules, valid_rules);
+                      pre_rules, bad_rules, valid_rules, max_pc);
 
   getTraceInfo(M, trace_info, rels, m_efac, rules);
 
   getTraceRulesFromInfo(trace_info, k_vars, trace_rules);
 
-  //getTraceRules(all_k_vars, k_vars, k_rels, k_subsets, rules, doomed_rels, trace_rules, doomed_exprs_for_pre);
+  //getDoomedPreExpr(pre_rules, doomed_rels, all_k_vars, )
+
+  getTraceRules(all_k_vars, k_vars, k_rels, k_subsets, trace_info, doomed_rels, trace_rules, max_pc, final_trace_rules);
 
   return true;
 }

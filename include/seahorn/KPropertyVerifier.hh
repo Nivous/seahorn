@@ -18,7 +18,6 @@ namespace seahorn
 {
   using namespace llvm;
   using hyper_expr_map = std::map<Expr, std::map<int, Expr>>;
-  using hyper_subset_expr_map = std::map<std::set<int>, Expr>;
 
   struct functionResultAggregator {
     HornClauseDB::RuleVector rules;
@@ -34,7 +33,7 @@ namespace seahorn
                         hyper_expr_map &k_vars, ExprVector &all_k_vars);
     void makeDoomedRels(hyper_expr_map &vars, Function *fn,
                         std::set<std::set<int>> &k_subsets, ExprFactory &m_efac,
-                        hyper_subset_expr_map *doomed_rels);
+                        std::map<std::set<int>, Expr> *doomed_rels);
     void getHyperExprsFromFunction(const Function *F, HornifyModule &hm, ExprFactory &m_efac, Module &M,
                                     hyper_expr_map &k_vars, std::set<std::set<int>> &k_subsets,
                                     std::map<int, Expr> &pc_rels,
@@ -44,7 +43,7 @@ namespace seahorn
                                     int *max_pc);
     void getPcRels(const Function *F, const HornClauseDB::expr_set_type &orig_rels,
                     std::map<int, Expr> &new_rels, ExprFactory &m_efac, hyper_expr_map &k_rels,
-                    Expr pc_combined_rel);
+                    Expr *pc_combined_rel);
     void getValidExprs(std::map<std::set<int>, ExprVector> &obvPoint,
                         std::set<std::set<int>> &k_subsets,
                         std::map<std::set<int>, Expr> &valid_rules);
@@ -57,18 +56,20 @@ namespace seahorn
                                   hyper_expr_map &k_vars);
     void getTraceInfo(const Function *F, std::map<std::pair<int, int>, ExprVector[3]> &trace_info,
                       const HornClauseDB::expr_set_type &orig_rels, ExprFactory &m_efac,
-                      const HornClauseDB::RuleVector &rules);
+                      const HornClauseDB::RuleVector &rules, std::map<int, Expr> &pc_expr_map,
+                      std::map<int, std::vector<int>> &src_dst_map);
     void getTraceRulesFromInfo(const Function *F,
                                 std::map<std::pair<int, int>, ExprVector[3]> &trace_info, hyper_expr_map &k_vars,
                                 std::map<std::pair<int, int>, std::map<int, Expr>> &trace_rules);
     void getTraceRules(const Function *F, ExprVector &all_k_vars, hyper_expr_map &k_vars,
-                        hyper_expr_map &k_rels,
+                        Expr pc_combined_rel, std::map<int, Expr> &pc_rels,
                         std::set<std::set<int>> &k_subsets,
+                        std::vector<std::vector<int>> &k_ary_pc_vectors,
                         std::map<std::pair<int, int>, ExprVector[3]>& trace_info,
-                        hyper_subset_expr_map &doomed_rels,
+                        std::map<std::set<int>, Expr> &doomed_rels,
                         std::map<std::pair<int, int>, std::map<int, Expr>> &trace_rules,
-                        int max_pc,
-                        std::map<std::pair<int, int>, std::map<std::set<int>, Expr>> &final_trace_rules);
+                        std::map<std::vector<int>, std::map<std::set<int>, HornClauseDB::RuleVector>> &final_trace_rules,
+                        std::map<int, Expr> &pc_expr_map, std::map<int, std::vector<int>> &src_dst_map);
     void runOnFunction(const Function *F, ExprFactory &m_efac, const ExprVector &vars,
                                       const HornClauseDB::RuleVector &rules, const HornClauseDB::expr_set_type &rels,
                                       std::set<std::set<int>> &k_subsets, HornifyModule &hm, Module &M,

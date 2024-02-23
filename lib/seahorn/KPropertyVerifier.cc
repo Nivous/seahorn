@@ -33,8 +33,8 @@ static void print_vars(const Function *F, hyper_expr_map *k_vars) {
   }
 }
 
-static void print_doomed_rels(hyper_subset_expr_map *doomed_rels) {
-  for(hyper_subset_expr_map::iterator it = doomed_rels->begin(); it != doomed_rels->end(); ++it)
+static void print_doomed_rels(std::map<std::set<int>, Expr> *doomed_rels) {
+  for(std::map<std::set<int>, Expr>::iterator it = doomed_rels->begin(); it != doomed_rels->end(); ++it)
   {
     Expr decl = it->second;
     errs() << "(declare-rel " << *bind::fname(decl) << " (";
@@ -261,18 +261,48 @@ static void print_trace_rules(const Function *F, std::map<std::pair<int, int>, s
   }
 }
 
+static void print_rules_for_pc(const Function *F, std::map<std::set<int>, HornClauseDB::RuleVector> &res, std::vector<int> &pc_vec) {
+  if (F->hasName())
+    errs() << "Rules for function: " << F->getName() << "\nsrc_pc_vec = (";
+  else
+    errs() << "src_pc_vec = (";
+
+  for (int i = 0; (unsigned int)i < pc_vec.size(); i++) {
+    errs() << pc_vec[i];
+    if ((unsigned int)i != pc_vec.size() - 1)
+      errs() << ", ";
+  }
+
+  errs() << ")\n";
+
+  for (std::map<std::set<int>, HornClauseDB::RuleVector>::iterator it = res.begin(); it != res.end(); it++) {
+    errs() << "current set of threads progressing is: (";
+
+    for (int num: it->first) {
+      errs() << num << ", ";
+    }
+
+    errs() << ")\nRules for those are:\n";
+
+    for (HornRule rule: it->second)
+      errs() << *(rule.body()) << "\n ==>\n" << *(rule.head()) << "\n"; 
+  }
+}
+
 /**
  * @brief Get the Args From Fapp object
  *
  * @param e The FAPP expr
  * @param rel The fdecl that the fapp is supposed to be an application of
  * @param args the vector that will contain the arguments of the fapp
- * @return  >= 0 if the fapp is an application of fdecl
- *          -1 otherwise
+ * @param pc_res one of the results of the function - returns the pc if the fapp is indeed an fapp. -1 otherwise
+ * @return  Expr matching the pc_res
  */
-static int getArgsFromFapp(Expr e, Expr rel, ExprVector &args) {
+static Expr getArgsFromFapp(Expr e, Expr rel, ExprVector &args, int *pc_res) {
+  *pc_res = -1;
+
   if (e->left() != rel)
-    return -1;
+    return Expr(0);
 
   args.reserve(e->arity() - 1);
   args.insert(args.begin(), ++(++(e->args_begin())), e->args_end());
@@ -280,9 +310,11 @@ static int getArgsFromFapp(Expr e, Expr rel, ExprVector &args) {
   Expr pc = *(++(e->args_begin()));
   expr::mpz_class num;
   if (!expr::numeric::getNum(pc, num))
-    return -1;
+    return Expr(0);
 
-  return std::stoi(num.to_string(10));
+  *pc_res = std::stoi(num.to_string(10));
+
+  return pc;
 }
 
 /**
@@ -292,27 +324,29 @@ static int getArgsFromFapp(Expr e, Expr rel, ExprVector &args) {
  * @param rel the relation that match the function we are currently looking at
  * @param args1 vector to contain the arguments of the fapp in the body
  * @param args2 vector to contain the operations in the body clause
- * @return  > 0 the pc matching the fapp in the body clause if it is of type rel
- *          -1 otherwise or if something fails
+ * @param pc_res one of the results of the function - returns the pc if the fapp is indeed an fapp. -1 otherwise
+ * @return  Expr matching the pc_res
  */
-static int getArgsFromBody(Expr e, Expr rel, ExprVector &args1, ExprVector &args2) {
-  int pc = -1;
+static Expr getArgsFromBody(Expr e, Expr rel, ExprVector &args1, ExprVector &args2, int *pc_res) {
+  *pc_res = -1;
+  Expr pc_exp;
+
   // Expect first argument in AND clause to be FAPP of the body clause or to be only an Fapp
   if ((e->arity() == 2) && isOpX<AND>(e)) {
-    pc = getArgsFromFapp(e->left(), rel, args1);
-    if (pc < 0)
-      return -1;
+    pc_exp = getArgsFromFapp(e->left(), rel, args1, pc_res);
+    if (*pc_res < 0)
+      return Expr(0);
 
     Expr narry_and = e->right();
     if (!isOpX<AND>(narry_and))
-      return -1;
+      return Expr(0);
 
     args2.reserve(narry_and->use_count());
     args2.insert(args2.begin(), narry_and->args_begin(), narry_and->args_end());
   } else if(bind::isFapp(e))
-    pc = getArgsFromFapp(e, rel, args1);
+    pc_exp = getArgsFromFapp(e, rel, args1, pc_res);
 
-  return pc;
+  return pc_exp;
 }
 
 /**
@@ -387,6 +421,40 @@ static std::set<std::set<int>> generateAllSubsets(int n) {
     return allSubsets;
 }
 
+static void generatePossibleDstFromPcVec(int k, std::vector<int> &pc_vec, std::vector<std::vector<int>> &possible_dst,
+                                          std::vector<int> &current, std::map<int, std::vector<int>> &src_dst_map,
+                                          int index = 0) {
+  if (index == k) {
+    possible_dst.push_back(current);
+    return;
+  }
+
+  for (int dst: src_dst_map[pc_vec[index]]) {
+    current[index] = dst;
+    generatePossibleDstFromPcVec(k, pc_vec, possible_dst, current, src_dst_map, index + 1);
+  }
+}
+
+static void generateVectors(int n, int k, std::vector<std::vector<int>>& result, std::vector<int>& current,
+                            int index = 0) {
+  if (index == k) {
+      result.push_back(current);
+      return;
+  }
+
+  for (int i = 0; i <= n; ++i) {
+      current[index] = i;
+      generateVectors(n, k, result, current, index + 1);
+  }
+}
+
+static std::vector<std::vector<int>> generateAllVectors(int n, int k) {
+  std::vector<std::vector<int>> result;
+  std::vector<int> current(k);
+  generateVectors(n, k, result, current);
+  return result;
+}
+
 static Expr getFunctionRelFromDB(const HornClauseDB::expr_set_type &orig_rels, Expr name) {
   std::stringstream _st;
   _st << *name;
@@ -415,6 +483,138 @@ static Expr getDestinationPC(Expr e) {
   std::advance(fappArgs, 1); // note: the first child is the fdecl
 
   return *fappArgs;
+}
+
+/**
+ * @brief This function shold only generate the sub expression of delta from the trace rules
+ * 
+ * @param pc_vec The specific vector of k src pc values
+ * @param dst The vector of the destination of all threads
+ * @param k_vars map between variables and the variables variants based on the thread num
+ * @param pc_combined_rel the fdecl of the combined relation
+ * @param pc_rels map between each thread number to its relation variant
+ * @param subset The specific subset of threads who progress
+ * @param trace_info the info we extracted from the rules in getTraceInfo
+ * @param trace_rules the rules we extracted from the info (i.e transformed to using the variants)
+ * @param pc_expr_map map between pc and its matching expression
+ * @return The delta expression
+ */
+static Expr generateDeltaExpr(std::vector<int> &pc_vec, std::vector<int> &dst, hyper_expr_map &k_vars,
+                              Expr pc_combined_rel, std::map<int, Expr> &pc_rels, std::set<int> &subset,
+                              std::map<std::pair<int, int>, ExprVector[3]> &trace_info,
+                              std::map<std::pair<int, int>, std::map<int, Expr>> &trace_rules,
+                              std::map<int, Expr> &pc_expr_map) {
+  Expr body;
+  Expr head;
+  ExprVector args_head;
+  ExprVector args_body;
+  ExprVector body_rules;
+  ExprVector head_rules;
+
+  for (int i = 0; (unsigned int)i < pc_vec.size(); i++) {
+    args_body.push_back(pc_expr_map[pc_vec[i]]);
+    if (subset.find(i) == subset.end())
+      args_head.push_back(pc_expr_map[pc_vec[i]]);
+    else
+      args_head.push_back(pc_expr_map[dst[i]]);
+  }
+
+  for (int i = 0; (unsigned int)i < bind::domainSz(pc_rels[0]) - 1; i++) {
+    for (int j = 0; (unsigned int)j < pc_vec.size(); j++) {
+      args_body.push_back(k_vars[trace_info[std::pair<int, int>(pc_vec[j], dst[j])][0][i]][j]);
+      if (subset.find(i) == subset.end())
+        args_head.push_back(k_vars[trace_info[std::pair<int, int>(pc_vec[j], dst[j])][0][i]][j]);
+      else
+        args_head.push_back(k_vars[trace_info[std::pair<int, int>(pc_vec[j], dst[j])][2][i]][j]);
+    }
+  }
+
+  head_rules.push_back(bind::fapp(pc_combined_rel, args_head));
+  body_rules.push_back(bind::fapp(pc_combined_rel, args_body));
+  for (int thread: subset) {
+    args_head.clear();
+    if (trace_rules.find(std::pair<int, int>(pc_vec[thread], dst[thread])) != trace_rules.end())
+      body_rules.push_back(trace_rules[std::pair<int, int>(pc_vec[thread], dst[thread])][thread]);
+    args_head.push_back(pc_expr_map[dst[thread]]);
+    for (int i = 0; (unsigned int)i < bind::domainSz(pc_rels[0]) - 1; i++)
+      args_head.push_back(k_vars[trace_info[std::pair<int, int>(pc_vec[thread], dst[thread])][2][i]][thread]);
+    head_rules.push_back(bind::fapp(pc_rels[thread], args_head));
+  }
+
+  body = boolop::land(body_rules);
+  head = boolop::land(head_rules);
+
+  return boolop::limp(body, head);
+}
+
+/**
+ * @brief This function should generate the rules for a specific combination of vector of k pc values
+ * 
+ * @param F The function we are working on
+ * @param pc_vec The specific vector of k pc values
+ * @param all_k_vars Vector containing all variables already organized in the order for doomed relations fapp
+ * @param k_vars map between variables and the variables variants based on the thread num
+ * @param pc_combined_rel the fdecl of the combined relation
+ * @param pc_rels map between each thread number to its relation variant
+ * @param k_subsets all subsets of k
+ * @param trace_info the info we extracted from the rules in getTraceInfo
+ * @param doomed_rels the doomed relations
+ * @param trace_rules the rules we extracted from the info (i.e transformed to using the variants)
+ * @param pc_expr_map map between pc and its matching expression
+ * @param src_dst_map map between each src bb count to a vector of all possible dst bb
+ * @return map between each subset of k to the horn rules for this subset and pc_vec
+ */
+static std::map<std::set<int>, HornClauseDB::RuleVector> generateRulesForKPc(const Function *F, std::vector<int> &pc_vec,
+                                                              ExprVector &all_k_vars, hyper_expr_map &k_vars,
+                                                              Expr pc_combined_rel,
+                                                              std::map<int, Expr> &pc_rels,
+                                                              std::set<std::set<int>> &k_subsets,
+                                                              std::map<std::pair<int, int>, ExprVector[3]> &trace_info,
+                                                              std::map<std::set<int>, Expr> &doomed_rels,
+                                                              std::map<std::pair<int, int>, std::map<int, Expr>> &trace_rules,
+                                                              std::map<int, Expr> &pc_expr_map,
+                                                              std::map<int, std::vector<int>> &src_dst_map) {
+  std::map<std::set<int>, HornClauseDB::RuleVector> res;
+  ExprVector head_args;
+  for (int i = 0; (unsigned int)i < pc_vec.size(); i++)
+    head_args.push_back(pc_expr_map[pc_vec[i]]);
+
+  head_args.insert(head_args.end(), all_k_vars.begin(), all_k_vars.end());
+
+  ExprSet allVars;
+  allVars.insert(all_k_vars.begin(), all_k_vars.end());
+  std::vector<int> current(pc_vec.size());
+  std::vector<std::vector<int>> possible_dst;
+  generatePossibleDstFromPcVec(pc_vec.size(), pc_vec, possible_dst, current, src_dst_map);
+  
+  for (std::set<int> subset : k_subsets) {
+    res[subset] = HornClauseDB::RuleVector();
+    Expr head = bind::fapp(doomed_rels[subset], head_args);
+
+    for (std::vector<int> dst: possible_dst) {
+      ExprVector doomed_body_args;
+      ExprVector doomed_body_apps;
+      Expr doomed_body;
+
+      for (int i = 0; (unsigned int)i < dst.size(); i++)
+        doomed_body_args.push_back(pc_expr_map[dst[i]]);
+
+      doomed_body_args.insert(doomed_body_args.end(), all_k_vars.begin(), all_k_vars.end());
+
+      for (std::set<int> _subset : k_subsets)
+        doomed_body_apps.push_back(bind::fapp(doomed_rels[_subset], doomed_body_args));
+
+      doomed_body = boolop::land(doomed_body_apps);
+
+      Expr delta = generateDeltaExpr(pc_vec, dst, k_vars, pc_combined_rel, pc_rels, subset, trace_info, trace_rules,
+                                      pc_expr_map);
+      res[subset].push_back(HornRule(allVars, boolop::limp(boolop::land(doomed_body, delta), head)));
+    }
+  }
+
+  //print_rules_for_pc(F, res, pc_vec);
+
+  return res;
 }
 
 void KPropertyVerifier::makeHyperVars(const Function *F, const ExprVector &vars, ExprFactory &m_efac, Module &M,
@@ -446,7 +646,7 @@ void KPropertyVerifier::makeHyperVars(const Function *F, const ExprVector &vars,
 
 void KPropertyVerifier::makeDoomedRels(hyper_expr_map &vars, Function *fn,
                                         std::set<std::set<int>> &k_subsets, ExprFactory &m_efac,
-                                        hyper_subset_expr_map *doomed_rels) {
+                                        std::map<std::set<int>, Expr> *doomed_rels) {
   ExprVector sorts;
   Expr orig_name = mkTerm<const Function *>(fn, m_efac);
   Expr name;
@@ -633,7 +833,7 @@ void KPropertyVerifier::getHyperExprsFromFunction(const Function *F, HornifyModu
  */
 void KPropertyVerifier::getPcRels(const Function *F, const HornClauseDB::expr_set_type &orig_rels,
                                   std::map<int, Expr> &new_rels, ExprFactory &m_efac, hyper_expr_map &k_rels,
-                                  Expr pc_combined_rel) {
+                                  Expr *pc_combined_rel) {
   // Getting the name of the relation as created in hornify module pass
   Expr name = mkTerm<const Function *>(F, m_efac);
   if (m_interproc)
@@ -662,10 +862,10 @@ void KPropertyVerifier::getPcRels(const Function *F, const HornClauseDB::expr_se
   sorts.push_back(mk<BOOL_TY>(m_efac));
   Expr new_name = variant::tag(name, "hyper");
   Expr fdecl = bind::fdecl(new_name, sorts);
-  pc_combined_rel = fdecl;
+  *pc_combined_rel = fdecl;
 
   print_duplicated_pc_rels(F, new_rels);
-  print_combined_pc_rels(F, pc_combined_rel);
+  print_combined_pc_rels(F, *pc_combined_rel);
 }
 
 /**
@@ -681,10 +881,13 @@ void KPropertyVerifier::getPcRels(const Function *F, const HornClauseDB::expr_se
  * @param orig_rels The original relations from the horinfy module pass
  * @param m_efac  Expr factory
  * @param rules the original rules from the hornify module pass
+ * @param pc_expr_map map between pc and the expression matching it
+ * @param src_dst_map map between each src bb to its destination pcs
  */
 void KPropertyVerifier::getTraceInfo(const Function *F, std::map<std::pair<int, int>, ExprVector[3]> &trace_info,
                                       const HornClauseDB::expr_set_type &orig_rels, ExprFactory &m_efac,
-                                      const HornClauseDB::RuleVector &rules) {
+                                      const HornClauseDB::RuleVector &rules, std::map<int, Expr> &pc_expr_map,
+                                      std::map<int, std::vector<int>> &src_dst_map) {
   // Getting the name of the relation as created in hornify module pass
   Expr name = mkTerm<const Function *>(F, m_efac);
   if (m_interproc)
@@ -700,16 +903,26 @@ void KPropertyVerifier::getTraceInfo(const Function *F, std::map<std::pair<int, 
     ExprVector args1;
     ExprVector args2;
     ExprVector args3;
+    Expr pc_exp;
 
     if (bind::isFapp(head))
-      dst_bb_count = getArgsFromFapp(head, rel, args3);
+      pc_exp = getArgsFromFapp(head, rel, args3, &dst_bb_count);
 
     if (dst_bb_count < 0)
       continue;
 
-    src_bb_count = getArgsFromBody(body, rel, args1, args2);
+    pc_expr_map[dst_bb_count] = pc_exp;
+
+    pc_exp = getArgsFromBody(body, rel, args1, args2, &src_bb_count);
     if (src_bb_count < 0)
       continue;
+
+    pc_expr_map[src_bb_count] = pc_exp;
+
+    if (src_dst_map.find(src_bb_count) == src_dst_map.end())
+      src_dst_map[src_bb_count] = std::vector<int>();
+
+    src_dst_map[src_bb_count].push_back(dst_bb_count);
 
     trace_info[std::pair<int,int>(src_bb_count, dst_bb_count)][0] = args1;
     trace_info[std::pair<int,int>(src_bb_count, dst_bb_count)][1] = args2;
@@ -747,16 +960,37 @@ void KPropertyVerifier::getTraceRulesFromInfo(const Function *F,
   print_trace_rules(F, trace_rules);
 }
 
-
+/**
+ * @brief This function should extract the final trace rules from all the data we already gathered.
+ * The logic will be going over all possible vectors of k pc value (for each thread).
+ * For each of them we are going to iterate over all subsets of k and create the corrosponding rule
+ * 
+ * @param F The function we are working on
+ * @param all_k_vars Vector containing all variables already organized in the order for doomed relations fapp
+ * @param k_vars map between variables and the variables variants based on the thread num
+ * @param pc_combined_rel the fdecl of the combined relation
+ * @param pc_rels map between each thread number to its relation variant
+ * @param k_subsets all subsets of k
+ * @param k_ary_pc_vectors all combinations of size k from 0 to max_pc
+ * @param trace_info the info we extracted from the rules in getTraceInfo
+ * @param doomed_rels the doomed relations
+ * @param trace_rules the rules we extracted from the info (i.e transformed to using the variants)
+ * @param final_trace_rules the output of the function
+ * @param pc_expr_map map between pc and its matching expression
+ * @param src_dst_map map between each src bb to a vector of all possible dst bb
+ */
 void KPropertyVerifier::getTraceRules(const Function *F, ExprVector &all_k_vars, hyper_expr_map &k_vars,
-                                      hyper_expr_map &k_rels,
+                                      Expr pc_combined_rel, std::map<int, Expr> &pc_rels,
                                       std::set<std::set<int>> &k_subsets,
+                                      std::vector<std::vector<int>> &k_ary_pc_vectors,
                                       std::map<std::pair<int, int>, ExprVector[3]>& trace_info,
-                                      hyper_subset_expr_map &doomed_rels,
+                                      std::map<std::set<int>, Expr> &doomed_rels,
                                       std::map<std::pair<int, int>, std::map<int, Expr>> &trace_rules,
-                                      int max_pc,
-                                      std::map<std::pair<int, int>, std::map<std::set<int>, Expr>> &final_trace_rules) {
-
+                                      std::map<std::vector<int>, std::map<std::set<int>, HornClauseDB::RuleVector>> &final_trace_rules,
+                                      std::map<int, Expr> &pc_expr_map, std::map<int, std::vector<int>> &src_dst_map) {
+  for (std::vector<int> pc_vec: k_ary_pc_vectors)
+    final_trace_rules[pc_vec] = generateRulesForKPc(F, pc_vec, all_k_vars, k_vars, pc_combined_rel, pc_rels, k_subsets,
+                                                    trace_info, doomed_rels, trace_rules, pc_expr_map, src_dst_map);
 }
 
 bool KPropertyVerifier::runOnModule(Module &M) {
@@ -804,12 +1038,13 @@ void KPropertyVerifier::runOnFunction(const Function *F, ExprFactory &m_efac, co
                                       std::set<std::set<int>> &k_subsets, HornifyModule &hm, Module &M,
                                       struct functionResultAggregator *out)
 {
+  // TODO:: Think about how to change the variables type to support k threads and not only 2
   /* maps variable -> (map i-> variable variant in thread i) */
   hyper_expr_map k_vars;
   /* maps relation -> (map i-> relation variant in thread i) */
   hyper_expr_map k_rels;
   /* all doomed relations */
-  hyper_subset_expr_map doomed_rels;
+  std::map<std::set<int>, Expr> doomed_rels;
   /* maps i -> function relation variant of thread i */
   std::map<int, Expr> pc_rels;
   /* combined relation for all threads for this function*/
@@ -827,8 +1062,8 @@ void KPropertyVerifier::runOnFunction(const Function *F, ExprFactory &m_efac, co
   int max_pc_for_function;
 
   /* This map should hold the final trace rules in the reduction
-  (src_bb_count, dst_bb_count) -> (subset -> rule) */
-  std::map<std::pair<int, int>, std::map<std::set<int>, Expr>> final_trace_rules;
+  (combination of size k of pc values) -> (subset -> rules) */
+  std::map<std::vector<int>, std::map<std::set<int>, HornClauseDB::RuleVector>> final_trace_rules;
 
   /* The first type of expression in the reduction:
   All threads are doomed and pre => bottom*/
@@ -838,32 +1073,50 @@ void KPropertyVerifier::runOnFunction(const Function *F, ExprFactory &m_efac, co
   (variables at entry, trace rules in block, variables at exit) */
   std::map<std::pair<int, int>, ExprVector[3]> trace_info;
 
+  /* map to hold the expression for each pc */
+  std::map<int, Expr> pc_expr_map;
+
   /* This maps (src_bb_count, dst_bb_count) ->
   map from 0 <= i < k to the relevant trace rule from trace info in thread i variants */
   std::map<std::pair<int, int>, std::map<int, Expr>> trace_rules;
 
-  makeHyperVars(F, vars, m_efac, M, k_vars, all_k_vars); /* Get new vars */
+  /* Vector to hold all k combinations of pc values ranging from 0 to max_pc */
+  std::vector<std::vector<int>> k_ary_pc_vectors;
+
+  /* map between each src bb to vector of all possible dst bb*/
+  std::map<int, std::vector<int>> src_dst_map;
 
   /* Insert doomed state function to symbol table */
   std::string doomed_name = std::string(DOOMED_STATE_FUNCTION_NAME) + std::string("_") + F->getName().str();
   auto FC = M.getOrInsertFunction(doomed_name, Type::getVoidTy(M.getContext()));
   auto *FN = dyn_cast<Function>(FC.getCallee());
 
+  makeHyperVars(F, vars, m_efac, M, k_vars, all_k_vars); /* Get new vars */
   makeDoomedRels(k_vars, FN, k_subsets, m_efac, &doomed_rels);
-
-  getPcRels(F, rels, pc_rels, m_efac, k_rels, pc_combined_rel);
-
+  getPcRels(F, rels, pc_rels, m_efac, k_rels, &pc_combined_rel);
   getHyperExprsFromFunction(F, hm, m_efac, M, k_vars, k_subsets, pc_rels,
                             pre_rules, bad_rules, valid_rules, &max_pc_for_function);
-
-  getTraceInfo(F, trace_info, rels, m_efac, rules);
-
+  k_ary_pc_vectors = generateAllVectors(max_pc_for_function, hyper_k);
+  getTraceInfo(F, trace_info, rels, m_efac, rules, pc_expr_map, src_dst_map);
   getTraceRulesFromInfo(F, trace_info, k_vars, trace_rules);
-
   //getDoomedPreExpr(pre_rules, doomed_rels, all_k_vars, )
-
-  getTraceRules(F, all_k_vars, k_vars, k_rels, k_subsets, trace_info, doomed_rels, trace_rules,
-                max_pc_for_function, final_trace_rules);  
+  getTraceRules(F, all_k_vars, k_vars, pc_combined_rel, pc_rels, k_subsets, k_ary_pc_vectors, trace_info, doomed_rels,
+                trace_rules, final_trace_rules, pc_expr_map, src_dst_map);
+  
+  for (std::map<std::vector<int>, std::map<std::set<int>, HornClauseDB::RuleVector>>::iterator it = final_trace_rules.begin();
+        it != final_trace_rules.end();
+        it++) {
+    for (std::map<std::set<int>, HornClauseDB::RuleVector>::iterator it2 = it->second.begin();
+          it2 != it->second.end();
+          it2++)
+      out->rules.insert(out->rules.end(), it2->second.begin(), it2->second.end());
+  }
+  
+  out->relations.insert(pc_combined_rel);
+  for (std::map<int, Expr>::iterator it = pc_rels.begin(); it != pc_rels.end(); it++)
+    out->relations.insert(it->second);
+  for (std::map<std::set<int>, Expr>::iterator it = doomed_rels.begin(); it != doomed_rels.end(); it++)
+    out->relations.insert(it->second);
 }
 
 }

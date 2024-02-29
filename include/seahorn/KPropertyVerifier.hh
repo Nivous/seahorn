@@ -70,6 +70,23 @@ namespace seahorn
                         std::map<std::pair<int, int>, std::map<int, Expr>> &trace_rules,
                         std::map<std::vector<int>, std::map<std::set<int>, HornClauseDB::RuleVector>> &final_trace_rules,
                         std::map<int, Expr> &pc_expr_map, std::map<int, std::vector<int>> &src_dst_map);
+    void getDoomedPreExpr(HornClauseDB::expr_set_type &pre_rules,
+                          std::map<std::set<int>, Expr> &doomed_rels,
+                          ExprVector &all_k_vars, std::vector<std::vector<int>> &k_ary_pc_vectors,
+                          std::map<int, Expr> &pc_expr_map, std::set<std::set<int>> &k_subsets,
+                          HornClauseDB::RuleVector &doomed_pre_expr);
+    void getValidRules(std::map<std::set<int>, Expr> &valid_rules,
+                        ExprVector &all_k_vars, std::vector<std::vector<int>> &k_ary_pc_vectors,
+                        std::map<std::set<int>, Expr> &doomed_rels,
+                        std::map<int, Expr> &pc_expr_map,
+                        std::set<std::set<int>> &k_subsets,
+                        HornClauseDB::RuleVector &valid_horn_rules);
+    void getBadRules(ExprVector &bad_rules, ExprVector &all_k_vars,
+                      std::vector<std::vector<int>> &k_ary_pc_vectors,
+                      std::map<std::set<int>, Expr> &doomed_rels,
+                      std::map<int, Expr> &pc_expr_map,
+                      std::set<std::set<int>> &k_subsets,
+                      HornClauseDB::RuleVector &bad_horn_rules);
     void runOnFunction(const Function *F, ExprFactory &m_efac, const ExprVector &vars,
                                       const HornClauseDB::RuleVector &rules, const HornClauseDB::expr_set_type &rels,
                                       std::set<std::set<int>> &k_subsets, HornifyModule &hm, Module &M,

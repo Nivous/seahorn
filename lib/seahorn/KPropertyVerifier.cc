@@ -289,6 +289,23 @@ static void print_rules_for_pc(const Function *F, std::map<std::set<int>, HornCl
   }
 }
 
+static void print_doomed_pre_expr(HornClauseDB::RuleVector &doomed_pre_expr, std::vector<std::vector<int>> &k_ary_pc_vectors) {
+  for (int i = 0; (unsigned int)i < doomed_pre_expr.size(); i++) {
+    assert((unsigned int)i < k_ary_pc_vectors.size());
+    errs() << "for pc_vec = (";
+
+    for (int j = 0; (unsigned int)j < k_ary_pc_vectors[i].size(); j++) {
+      errs() << k_ary_pc_vectors[i][j];
+      if ((unsigned int)j != k_ary_pc_vectors[i].size() - 1)
+        errs() << ", ";
+    }
+
+    errs() << "):\n";
+    errs() << "doomed_pre_expr - body is:\n" << *(doomed_pre_expr[i].body()) << "\n";
+    errs() << "doomed_pre_expr - head is:\n" << *(doomed_pre_expr[i].head()) << "\n";
+  }
+}
+
 /**
  * @brief Get the Args From Fapp object
  *
@@ -504,12 +521,9 @@ static Expr generateDeltaExpr(std::vector<int> &pc_vec, std::vector<int> &dst, h
                               std::map<std::pair<int, int>, ExprVector[3]> &trace_info,
                               std::map<std::pair<int, int>, std::map<int, Expr>> &trace_rules,
                               std::map<int, Expr> &pc_expr_map) {
-  Expr body;
-  Expr head;
+  ExprVector rules;
   ExprVector args_head;
   ExprVector args_body;
-  ExprVector body_rules;
-  ExprVector head_rules;
 
   for (int i = 0; (unsigned int)i < pc_vec.size(); i++) {
     args_body.push_back(pc_expr_map[pc_vec[i]]);
@@ -529,22 +543,56 @@ static Expr generateDeltaExpr(std::vector<int> &pc_vec, std::vector<int> &dst, h
     }
   }
 
-  head_rules.push_back(bind::fapp(pc_combined_rel, args_head));
-  body_rules.push_back(bind::fapp(pc_combined_rel, args_body));
+  rules.push_back(bind::fapp(pc_combined_rel, args_head));
+  rules.push_back(bind::fapp(pc_combined_rel, args_body));
   for (int thread: subset) {
     args_head.clear();
     if (trace_rules.find(std::pair<int, int>(pc_vec[thread], dst[thread])) != trace_rules.end())
-      body_rules.push_back(trace_rules[std::pair<int, int>(pc_vec[thread], dst[thread])][thread]);
+      rules.push_back(trace_rules[std::pair<int, int>(pc_vec[thread], dst[thread])][thread]);
     args_head.push_back(pc_expr_map[dst[thread]]);
     for (int i = 0; (unsigned int)i < bind::domainSz(pc_rels[0]) - 1; i++)
       args_head.push_back(k_vars[trace_info[std::pair<int, int>(pc_vec[thread], dst[thread])][2][i]][thread]);
-    head_rules.push_back(bind::fapp(pc_rels[thread], args_head));
+    rules.push_back(bind::fapp(pc_rels[thread], args_head));
   }
 
-  body = boolop::land(body_rules);
-  head = boolop::land(head_rules);
+  return boolop::land(rules);
+}
 
-  return boolop::limp(body, head);
+/**
+ * @brief This function should rule only for a specific pc_vec
+ *
+ * @param pre_rules the set of all pre rules
+ * @param doomed_rels the map of subset -> doomed relation
+ * @param all_k_vars all the hyper variables
+ * @param pc_vec a combinations of size k of pc values
+ * @param pc_expr_map map between pc and its matching expression
+ * @param k_subsets all subsets of k
+ * @return HornRule for this specific combination of pc_vec
+ */
+static HornRule generateDoomedPreExprForKPc(HornClauseDB::expr_set_type &pre_rules,
+                                                            std::map<std::set<int>, Expr> &doomed_rels,
+                                                            ExprVector &all_k_vars, std::vector<int> &pc_vec,
+                                                            std::map<int, Expr> &pc_expr_map,
+                                                            std::set<std::set<int>> &k_subsets) {
+  ExprSet allVars;
+  ExprVector doomed_args;
+  for (int i = 0; (unsigned int)i < pc_vec.size(); i++)
+    doomed_args.push_back(pc_expr_map[pc_vec[i]]);
+
+  doomed_args.insert(doomed_args.end(), all_k_vars.begin(), all_k_vars.end());
+
+  ExprVector pre_rules_as_vec;
+  pre_rules_as_vec.insert(pre_rules_as_vec.begin(), pre_rules.begin(), pre_rules.end());
+  Expr pre_expr = (pre_rules_as_vec.empty()) ? mk<TRUE>(all_k_vars[0]->efac()) : boolop::land(pre_rules_as_vec);
+
+  ExprVector doomed_expr_vector;
+  for (std::set<int> subset: k_subsets)
+    doomed_expr_vector.push_back(bind::fapp(doomed_rels[subset], doomed_args));
+
+  Expr body = boolop::land(boolop::land(doomed_expr_vector), pre_expr);
+  allVars.insert(all_k_vars.begin(), all_k_vars.end());
+
+  return HornRule(allVars, boolop::limp(body, mk<FALSE>(all_k_vars[0]->efac())));
 }
 
 /**
@@ -583,6 +631,7 @@ static std::map<std::set<int>, HornClauseDB::RuleVector> generateRulesForKPc(con
 
   ExprSet allVars;
   allVars.insert(all_k_vars.begin(), all_k_vars.end());
+
   std::vector<int> current(pc_vec.size());
   std::vector<std::vector<int>> possible_dst;
   generatePossibleDstFromPcVec(pc_vec.size(), pc_vec, possible_dst, current, src_dst_map);
@@ -596,8 +645,12 @@ static std::map<std::set<int>, HornClauseDB::RuleVector> generateRulesForKPc(con
       ExprVector doomed_body_apps;
       Expr doomed_body;
 
-      for (int i = 0; (unsigned int)i < dst.size(); i++)
-        doomed_body_args.push_back(pc_expr_map[dst[i]]);
+      for (int i = 0; (unsigned int)i < dst.size(); i++) {
+        if (subset.find(i) != subset.end())
+          doomed_body_args.push_back(pc_expr_map[dst[i]]);
+        else
+          doomed_body_args.push_back(pc_expr_map[pc_vec[i]]);
+      }
 
       doomed_body_args.insert(doomed_body_args.end(), all_k_vars.begin(), all_k_vars.end());
 
@@ -608,13 +661,68 @@ static std::map<std::set<int>, HornClauseDB::RuleVector> generateRulesForKPc(con
 
       Expr delta = generateDeltaExpr(pc_vec, dst, k_vars, pc_combined_rel, pc_rels, subset, trace_info, trace_rules,
                                       pc_expr_map);
-      res[subset].push_back(HornRule(allVars, boolop::limp(boolop::land(doomed_body, delta), head)));
+      HornRule rule = HornRule(allVars, boolop::limp(boolop::land(doomed_body, delta), head));
+      res[subset].push_back(rule);
     }
   }
 
   //print_rules_for_pc(F, res, pc_vec);
 
   return res;
+}
+
+/**
+ * @brief This function should generate the bad rule for singular combination of k pc values and 1 subset
+ * 
+ * @param bad_rules all the bad rules
+ * @param all_k_vars Vector containing all variables already organized in the order for doomed relations fapp
+ * @param pc_vec the k pc values
+ * @param doomed_rel the doomed relation for this specific subset
+ * @param pc_expr_map map between pc and its matching expression
+ * @return The bad rule for this specific combination of pc_vec and subset
+ */
+static HornRule generateBadRuleForKPc(ExprVector &bad_rules, ExprVector &all_k_vars,
+                                      std::vector<int> &pc_vec,
+                                      Expr doomed_rel, std::map<int, Expr> &pc_expr_map) {
+  ExprSet allVars;
+  allVars.insert(all_k_vars.begin(), all_k_vars.end());
+
+  ExprVector args;
+  for (int i = 0; (unsigned int)i < pc_vec.size(); i++)
+    args.push_back(pc_expr_map[pc_vec[i]]);
+
+  args.insert(args.end(), all_k_vars.begin(), all_k_vars.end());
+
+  return HornRule(allVars, boolop::limp(boolop::land(bad_rules), bind::fapp(doomed_rel, args)));
+}
+
+/**
+ * @brief This function should generate the valid rule for singular combination of k pc values and 1 subset
+ * 
+ * @param valid_rules maps between subset and the valid rule for this subset
+ * @param all_k_vars Vector containing all variables already organized in the order for doomed relations fapp
+ * @param pc_vec the k pc values
+ * @param doomed_rels all the doomed relations
+ * @param pc_expr_map map between pc and its matching expression
+ * @param subset the specific subset
+ * @return HornRule the valid rule for this pc_vec and subset
+ */
+static HornRule generateValidRuleForKPc(std::map<std::set<int>, Expr> &valid_rules,
+                                            ExprVector &all_k_vars, std::vector<int> &pc_vec,
+                                            std::map<std::set<int>, Expr> &doomed_rels,
+                                            std::map<int, Expr> &pc_expr_map,
+                                            std::set<int> &subset) {
+  ExprSet allVars;
+  allVars.insert(all_k_vars.begin(), all_k_vars.end());
+
+  ExprVector args;
+  for (int i = 0; (unsigned int)i < pc_vec.size(); i++)
+    args.push_back(pc_expr_map[pc_vec[i]]);
+
+  args.insert(args.end(), all_k_vars.begin(), all_k_vars.end());
+
+  return HornRule(allVars, boolop::limp(boolop::lneg(valid_rules[subset]),
+                                        bind::fapp(doomed_rels[subset], args)));
 }
 
 void KPropertyVerifier::makeHyperVars(const Function *F, const ExprVector &vars, ExprFactory &m_efac, Module &M,
@@ -961,6 +1069,30 @@ void KPropertyVerifier::getTraceRulesFromInfo(const Function *F,
 }
 
 /**
+ * @brief This function should get the first set of rules in the paper.
+ * Rules of the form (doomed && pre -> bottom)
+ *
+ * @param pre_rules the set of all pre rules
+ * @param doomed_rels the map of subset -> doomed relation
+ * @param all_k_vars all the hyper variables
+ * @param k_ary_pc_vectors all combinations of size k from 0 to max_pc
+ * @param pc_expr_map map between pc and its matching expression
+ * @param k_subsets all subsets of k
+ * @param doomed_pre_expr the result of this function
+ */
+void KPropertyVerifier::getDoomedPreExpr(HornClauseDB::expr_set_type &pre_rules,
+                                          std::map<std::set<int>, Expr> &doomed_rels,
+                                          ExprVector &all_k_vars, std::vector<std::vector<int>> &k_ary_pc_vectors,
+                                          std::map<int, Expr> &pc_expr_map, std::set<std::set<int>> &k_subsets,
+                                          HornClauseDB::RuleVector &doomed_pre_expr) {
+  for (std::vector<int> pc_vec: k_ary_pc_vectors)
+    doomed_pre_expr.push_back(generateDoomedPreExprForKPc(pre_rules, doomed_rels, all_k_vars, pc_vec,
+                                                            pc_expr_map, k_subsets));
+  
+  //print_doomed_pre_expr(doomed_pre_expr, k_ary_pc_vectors);
+}
+
+/**
  * @brief This function should extract the final trace rules from all the data we already gathered.
  * The logic will be going over all possible vectors of k pc value (for each thread).
  * For each of them we are going to iterate over all subsets of k and create the corrosponding rule
@@ -991,6 +1123,53 @@ void KPropertyVerifier::getTraceRules(const Function *F, ExprVector &all_k_vars,
   for (std::vector<int> pc_vec: k_ary_pc_vectors)
     final_trace_rules[pc_vec] = generateRulesForKPc(F, pc_vec, all_k_vars, k_vars, pc_combined_rel, pc_rels, k_subsets,
                                                     trace_info, doomed_rels, trace_rules, pc_expr_map, src_dst_map);
+}
+
+/**
+ * @brief This function should generate the bad rules for all the combinations of k pc values and subsets
+ * 
+ * @param bad_rules all the bad rules
+ * @param all_k_vars Vector containing all variables already organized in the order for doomed relations fapp
+ * @param k_ary_pc_vectors all combinations of size k from 0 to max_pc
+ * @param doomed_rels the doomed relations
+ * @param pc_expr_map map between pc and its matching expression
+ * @param k_subsets all subsets of k
+ * @param bad_horn_rules The output of the function
+ */
+void KPropertyVerifier::getBadRules(ExprVector &bad_rules, ExprVector &all_k_vars,
+                                    std::vector<std::vector<int>> &k_ary_pc_vectors,
+                                    std::map<std::set<int>, Expr> &doomed_rels,
+                                    std::map<int, Expr> &pc_expr_map,
+                                    std::set<std::set<int>> &k_subsets,
+                                    HornClauseDB::RuleVector &bad_horn_rules) {
+  for (std::vector<int> pc_vec: k_ary_pc_vectors) {
+    for (std::set<int> subset: k_subsets)
+      bad_horn_rules.push_back(generateBadRuleForKPc(bad_rules, all_k_vars, pc_vec, doomed_rels[subset], pc_expr_map));
+  }
+}
+
+/**
+ * @brief This function should generate the valid rules for all the combinations of k pc values and subsets
+ * 
+ * @param valid_rules maps between a subset and it's valid rule
+ * @param all_k_vars Vector containing all variables already organized in the order for doomed relations fapp
+ * @param k_ary_pc_vectors all combinations of size k from 0 to max_pc
+ * @param doomed_rels the doomed relations
+ * @param pc_expr_map map between pc and its matching expression
+ * @param k_subsets all subsets of k
+ * @param valid_horn_rules The output of the function
+ */
+void KPropertyVerifier::getValidRules(std::map<std::set<int>, Expr> &valid_rules,
+                                            ExprVector &all_k_vars, std::vector<std::vector<int>> &k_ary_pc_vectors,
+                                            std::map<std::set<int>, Expr> &doomed_rels,
+                                            std::map<int, Expr> &pc_expr_map,
+                                            std::set<std::set<int>> &k_subsets,
+                                            HornClauseDB::RuleVector &valid_horn_rules) {
+  for (std::vector<int> pc_vec: k_ary_pc_vectors) {
+    for (std::set<int> subset: k_subsets)
+      valid_horn_rules.push_back(generateValidRuleForKPc(valid_rules, all_k_vars, pc_vec, doomed_rels,
+                                                          pc_expr_map, subset));
+  }
 }
 
 bool KPropertyVerifier::runOnModule(Module &M) {
@@ -1067,7 +1246,15 @@ void KPropertyVerifier::runOnFunction(const Function *F, ExprFactory &m_efac, co
 
   /* The first type of expression in the reduction:
   All threads are doomed and pre => bottom*/
-  Expr doomed_pre_expr;
+  HornClauseDB::RuleVector doomed_pre_expr;
+
+  /* the second type of rules in the reduction:
+  For all threads: (bad -> doomed) */
+  HornClauseDB::RuleVector bad_horn_rules;
+
+  /* the third type of rules in the reduction:
+  For all threads: (not valid -> doomed) */
+  HornClauseDB::RuleVector valid_horn_rules;
 
   /* This maps (src_bb_count, dst_bb_count) ->
   (variables at entry, trace rules in block, variables at exit) */
@@ -1099,10 +1286,16 @@ void KPropertyVerifier::runOnFunction(const Function *F, ExprFactory &m_efac, co
   k_ary_pc_vectors = generateAllVectors(max_pc_for_function, hyper_k);
   getTraceInfo(F, trace_info, rels, m_efac, rules, pc_expr_map, src_dst_map);
   getTraceRulesFromInfo(F, trace_info, k_vars, trace_rules);
-  //getDoomedPreExpr(pre_rules, doomed_rels, all_k_vars, )
+  getDoomedPreExpr(pre_rules, doomed_rels, all_k_vars, k_ary_pc_vectors, pc_expr_map, k_subsets, doomed_pre_expr);
   getTraceRules(F, all_k_vars, k_vars, pc_combined_rel, pc_rels, k_subsets, k_ary_pc_vectors, trace_info, doomed_rels,
                 trace_rules, final_trace_rules, pc_expr_map, src_dst_map);
+  getValidRules(valid_rules, all_k_vars, k_ary_pc_vectors, doomed_rels, pc_expr_map, k_subsets, valid_horn_rules);
+  getBadRules(bad_rules, all_k_vars, k_ary_pc_vectors, doomed_rels, pc_expr_map, k_subsets, bad_horn_rules);
   
+  out->rules.insert(out->rules.begin(), doomed_pre_expr.begin(), doomed_pre_expr.end());
+  out->rules.insert(out->rules.begin(), bad_horn_rules.begin(), bad_horn_rules.end());
+  out->rules.insert(out->rules.begin(), valid_horn_rules.begin(), valid_horn_rules.end());
+
   for (std::map<std::vector<int>, std::map<std::set<int>, HornClauseDB::RuleVector>>::iterator it = final_trace_rules.begin();
         it != final_trace_rules.end();
         it++) {

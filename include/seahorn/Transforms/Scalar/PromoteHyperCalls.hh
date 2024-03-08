@@ -19,7 +19,17 @@ namespace seahorn
   struct PromoteHyperCalls {
 
     Function *m_hyper_pre_gt;
+    Function *m_hyper_pre_geq;
+    Function *m_hyper_pre_eq;
+    Function *m_hyper_pre_neq;
+    Function *m_hyper_pre_lt;
+    Function *m_hyper_pre_leq;
     Function *m_hyper_post_gt;
+    Function *m_hyper_post_geq;
+    Function *m_hyper_post_eq;
+    Function *m_hyper_post_neq;
+    Function *m_hyper_post_lt;
+    Function *m_hyper_post_leq;
 
     bool runOnModule(Module &M, SeaBuiltinsInfo& SBI);
     bool runOnFunction(Function &F);

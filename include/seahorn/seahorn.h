@@ -59,8 +59,31 @@ extern void sea_set_shadowmem(char, char *, char);
  */
 extern char sea_get_shadowmem(char, char *);
 
+/* When comparing 2 different executions arg1 > arg2 */
 extern void __hyper_pre_gt(int);
+/* When comparing 2 different executions arg1 >= arg2 */
+extern void __hyper_pre_geq(int);
+/* When comparing 2 different executions arg1 = arg2 */
+extern void __hyper_pre_eq(int);
+/* When comparing 2 different executions arg1 != arg2 */
+extern void __hyper_pre_neq(int);
+/* When comparing 2 different executions arg1 < arg2 */
+extern void __hyper_pre_lt(int);
+/* When comparing 2 different executions arg1 <= arg2 */
+extern void __hyper_pre_leq(int);
+
+/* When comparing 2 different executions arg1 > arg2 */
 extern void __hyper_post_gt(int);
+/* When comparing 2 different executions arg1 >= arg2 */
+extern void __hyper_post_geq(int);
+/* When comparing 2 different executions arg1 = arg2 */
+extern void __hyper_post_eq(int);
+/* When comparing 2 different executions arg1 != arg2 */
+extern void __hyper_post_neq(int);
+/* When comparing 2 different executions arg1 < arg2 */
+extern void __hyper_post_lt(int);
+/* When comparing 2 different executions arg1 <= arg2 */
+extern void __hyper_post_leq(int);
 
 #ifdef __cplusplus
 }

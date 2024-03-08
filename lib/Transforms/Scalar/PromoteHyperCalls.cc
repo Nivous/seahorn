@@ -21,7 +21,17 @@ bool PromoteHyperCalls::runOnModule(Module &M, SeaBuiltinsInfo& SBI) {
     using SBIOp = SeaBuiltinsOp;
 
     m_hyper_pre_gt = SBI.mkSeaBuiltinFn(SBIOp::HYPER_PRE_GT, M);
+    m_hyper_pre_geq = SBI.mkSeaBuiltinFn(SBIOp::HYPER_PRE_GEQ, M);
+    m_hyper_pre_eq = SBI.mkSeaBuiltinFn(SBIOp::HYPER_PRE_EQ, M);
+    m_hyper_pre_neq = SBI.mkSeaBuiltinFn(SBIOp::HYPER_PRE_NEQ, M);
+    m_hyper_pre_lt = SBI.mkSeaBuiltinFn(SBIOp::HYPER_PRE_LT, M);
+    m_hyper_pre_leq = SBI.mkSeaBuiltinFn(SBIOp::HYPER_PRE_LEQ, M);
     m_hyper_post_gt = SBI.mkSeaBuiltinFn(SBIOp::HYPER_POST_GT, M);
+    m_hyper_post_geq = SBI.mkSeaBuiltinFn(SBIOp::HYPER_POST_GEQ, M);
+    m_hyper_post_eq = SBI.mkSeaBuiltinFn(SBIOp::HYPER_POST_EQ, M);
+    m_hyper_post_neq = SBI.mkSeaBuiltinFn(SBIOp::HYPER_POST_NEQ, M);
+    m_hyper_post_lt = SBI.mkSeaBuiltinFn(SBIOp::HYPER_POST_LT, M);
+    m_hyper_post_leq = SBI.mkSeaBuiltinFn(SBIOp::HYPER_POST_LEQ, M);
 
     for (auto &F : M) {
         runOnFunction(F);
@@ -56,16 +66,35 @@ bool PromoteHyperCalls::runOnFunction(Function &F) {
     if (fn && !fn->empty())
       continue;
 
-    if (fn && (fn->getName().equals("__hyper_pre_gt") ||
-               fn->getName().equals("__hyper_post_gt"))) {
+    if (fn && fn->getName().startswith("__hyper")) {
         auto arg0 = CI.getOperand(0);
        
         if (fn->getName().equals("__hyper_pre_gt"))
             nfn = m_hyper_pre_gt;
+        else if (fn->getName().equals("__hyper_pre_geq"))
+            nfn = m_hyper_pre_geq;
+        else if (fn->getName().equals("__hyper_pre_eq"))
+            nfn = m_hyper_pre_eq;
+        else if (fn->getName().equals("__hyper_pre_neq"))
+            nfn = m_hyper_pre_neq;
+        else if (fn->getName().equals("__hyper_pre_lt"))
+            nfn = m_hyper_pre_lt;
+        else if (fn->getName().equals("__hyper_pre_leq"))
+            nfn = m_hyper_pre_leq;
         else if(fn->getName().equals("__hyper_post_gt"))
             nfn = m_hyper_post_gt;
+        else if (fn->getName().equals("__hyper_post_geq"))
+            nfn = m_hyper_post_geq;
+        else if (fn->getName().equals("__hyper_post_eq"))
+            nfn = m_hyper_post_eq;
+        else if (fn->getName().equals("__hyper_post_neq"))
+            nfn = m_hyper_post_neq;
+        else if (fn->getName().equals("__hyper_post_lt"))
+            nfn = m_hyper_post_lt;
+        else if (fn->getName().equals("__hyper_post_leq"))
+            nfn = m_hyper_post_leq;
         else
-          assert(0);
+          assert(0 && "Unknown hyper call");
 
         // Generates code.
         IRBuilder<> Builder(F.getContext());
@@ -107,8 +136,7 @@ void PromoteHyperCalls::splitHyperCallsToOwnBasicBlocks(Function &F) {
         if (fn && !fn->empty())
             continue;
 
-        if (fn && ((fn->getName().equals("hyper.post.gt")) ||
-            (fn->getName().equals("hyper.pre.gt"))))
+        if (fn && fn->getName().startswith("hyper"))
             toSplit.push_back(&I);
     }
 

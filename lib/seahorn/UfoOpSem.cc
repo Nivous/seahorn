@@ -1091,14 +1091,60 @@ struct OpSemHyperVisitor : public InstVisitor<OpSemHyperVisitor>, OpSemBase {
       llvm::errs() << "Currently hyper properties supports only k=2.\n";
   }
 
+  void handleHyperGEQ(Expr var) {
+    if (hyper_k == 2) {
+      side(mk<GEQ>(hyper_vars[var][0], hyper_vars[var][1]));
+    } else
+      llvm::errs() << "Currently hyper properties supports only k=2.\n";
+  }
+
+  void handleHyperEQ(Expr var) {
+    if (hyper_k == 2) {
+      side(mk<EQ>(hyper_vars[var][0], hyper_vars[var][1]));
+    } else
+      llvm::errs() << "Currently hyper properties supports only k=2.\n";
+  }
+
+  void handleHyperNEQ(Expr var) {
+    if (hyper_k == 2) {
+      side(mk<NEQ>(hyper_vars[var][0], hyper_vars[var][1]));
+    } else
+      llvm::errs() << "Currently hyper properties supports only k=2.\n";
+  }
+
+  void handleHyperLT(Expr var) {
+    if (hyper_k == 2) {
+      side(mk<LT>(hyper_vars[var][0], hyper_vars[var][1]));
+    } else
+      llvm::errs() << "Currently hyper properties supports only k=2.\n";
+  }
+
+  void handleHyperLEQ(Expr var) {
+    if (hyper_k == 2) {
+      side(mk<LEQ>(hyper_vars[var][0], hyper_vars[var][1]));
+    } else
+      llvm::errs() << "Currently hyper properties supports only k=2.\n";
+  }
+
   void visitCallBase(CallBase &CB) {
     assert(isa<CallInst>(CB));
     const Function *fn = CB.getCalledFunction();
 
-    if (fn && (fn->getName().equals("hyper.pre.gt") ||
-                fn->getName().equals("hyper.post.gt"))) {
+    if (fn && fn->getName().startswith("hyper.")) {
       Expr c = lookup(*CB.getOperand(0));
-      handleHyperGT(c);
+
+      if (fn->getName().equals("hyper.pre.gt") || fn->getName().equals("hyper.post.gt"))
+        handleHyperGT(c);
+      if (fn->getName().equals("hyper.pre.geq") || fn->getName().equals("hyper.post.geq"))
+        handleHyperGEQ(c);
+      if (fn->getName().equals("hyper.pre.eq") || fn->getName().equals("hyper.post.eq"))
+        handleHyperEQ(c);
+      if (fn->getName().equals("hyper.pre.neq") || fn->getName().equals("hyper.post.neq"))
+        handleHyperNEQ(c);
+      if (fn->getName().equals("hyper.pre.lt") || fn->getName().equals("hyper.post.lt"))
+        handleHyperLT(c);
+      if (fn->getName().equals("hyper.pre.leq") || fn->getName().equals("hyper.post.leq"))
+        handleHyperLEQ(c);
     } else
       visitInstruction(CB);
   }

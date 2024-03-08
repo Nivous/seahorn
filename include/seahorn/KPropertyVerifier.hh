@@ -74,7 +74,7 @@ namespace seahorn
                           std::map<std::set<int>, Expr> &doomed_rels,
                           ExprVector &all_k_vars, std::vector<std::vector<int>> &k_ary_pc_vectors,
                           std::map<int, Expr> &pc_expr_map, std::set<std::set<int>> &k_subsets,
-                          HornClauseDB::RuleVector &doomed_pre_expr);
+                          HornClauseDB::RuleVector &doomed_pre_expr, Expr bottom_rel_expr);
     void getValidRules(std::map<std::set<int>, Expr> &valid_rules,
                         ExprVector &all_k_vars, std::vector<std::vector<int>> &k_ary_pc_vectors,
                         std::map<std::set<int>, Expr> &doomed_rels,
@@ -90,7 +90,7 @@ namespace seahorn
     void runOnFunction(const Function *F, ExprFactory &m_efac, const ExprVector &vars,
                                       const HornClauseDB::RuleVector &rules, const HornClauseDB::expr_set_type &rels,
                                       std::set<std::set<int>> &k_subsets, HornifyModule &hm, Module &M,
-                                      struct functionResultAggregator *out);
+                                      Expr bottom_rel_expr, struct functionResultAggregator *out);
   public:
     static char ID;
     KPropertyVerifier (int hyper_k, bool interproc = false) : llvm::ModulePass (ID), hyper_k(hyper_k), m_interproc(interproc) {}

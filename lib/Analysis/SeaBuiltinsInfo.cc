@@ -34,7 +34,17 @@ using namespace llvm;
 #define SEA_SET_SHADOWMEM "sea.set_shadowmem"
 #define SEA_GET_SHADOWMEM "sea.get_shadowmem"
 #define HYPER_PRE_GREATER "hyper.pre.gt"
+#define HYPER_PRE_GREATER_EQUAL "hyper.pre.geq"
+#define HYPER_PRE_EQUAL "hyper.pre.eq"
+#define HYPER_PRE_NOT_EQUAL "hyper.pre.neq"
+#define HYPER_PRE_LESS "hyper.pre.lt"
+#define HYPER_PRE_LESS_EQUAL "hyper.pre.leq"
 #define HYPER_POST_GREATER "hyper.post.gt"
+#define HYPER_POST_GREATER_EQUAL "hyper.post.geq"
+#define HYPER_POST_EQUAL "hyper.post.eq"
+#define HYPER_POST_NOT_EQUAL "hyper.post.neq"
+#define HYPER_POST_LESS "hyper.post.lt"
+#define HYPER_POST_LESS_EQUAL "hyper.post.leq"
 
 SeaBuiltinsOp
 seahorn::SeaBuiltinsInfo::getSeaBuiltinOp(const llvm::CallBase &cb) const {
@@ -66,7 +76,17 @@ seahorn::SeaBuiltinsInfo::getSeaBuiltinOp(const llvm::CallBase &cb) const {
       .Case(SEA_SET_SHADOWMEM, SBIOp::SET_SHADOWMEM)
       .Case(SEA_GET_SHADOWMEM, SBIOp::GET_SHADOWMEM)
       .Case(HYPER_PRE_GREATER, SBIOp::HYPER_PRE_GT)
+      .Case(HYPER_PRE_GREATER_EQUAL, SBIOp::HYPER_PRE_GEQ)
+      .Case(HYPER_PRE_EQUAL, SBIOp::HYPER_PRE_EQ)
+      .Case(HYPER_PRE_NOT_EQUAL, SBIOp::HYPER_PRE_NEQ)
+      .Case(HYPER_PRE_LESS, SBIOp::HYPER_PRE_LT)
+      .Case(HYPER_PRE_LESS_EQUAL, SBIOp::HYPER_PRE_LEQ)
       .Case(HYPER_POST_GREATER, SBIOp::HYPER_POST_GT)
+      .Case(HYPER_POST_GREATER_EQUAL, SBIOp::HYPER_POST_GEQ)
+      .Case(HYPER_POST_EQUAL, SBIOp::HYPER_POST_EQ)
+      .Case(HYPER_POST_NOT_EQUAL, SBIOp::HYPER_POST_NEQ)
+      .Case(HYPER_POST_LESS, SBIOp::HYPER_POST_LT)
+      .Case(HYPER_POST_LESS_EQUAL, SBIOp::HYPER_POST_LEQ)
       .Default(SBIOp::UNKNOWN);
 }
 
@@ -117,7 +137,17 @@ llvm::Function *SeaBuiltinsInfo::mkSeaBuiltinFn(SeaBuiltinsOp op,
   case SBIOp::GET_SHADOWMEM:
     return mkGetShadowMem(M);
   case SBIOp::HYPER_PRE_GT:
+  case SBIOp::HYPER_PRE_GEQ:
+  case SBIOp::HYPER_PRE_EQ:
+  case SBIOp::HYPER_PRE_NEQ:
+  case SBIOp::HYPER_PRE_LT:
+  case SBIOp::HYPER_PRE_LEQ:
   case SBIOp::HYPER_POST_GT:
+  case SBIOp::HYPER_POST_GEQ:
+  case SBIOp::HYPER_POST_EQ:
+  case SBIOp::HYPER_POST_NEQ:
+  case SBIOp::HYPER_POST_LT:
+  case SBIOp::HYPER_POST_LEQ:
     return mkHyper(M, op);
   }
   llvm_unreachable(nullptr);
@@ -447,8 +477,38 @@ Function *SeaBuiltinsInfo::mkHyper(Module &M, SeaBuiltinsOp op) {
   case SBIOp::HYPER_PRE_GT:
     name = HYPER_PRE_GREATER;
     break;
+  case SBIOp::HYPER_PRE_GEQ:
+    name = HYPER_PRE_GREATER_EQUAL;
+    break;
+  case SBIOp::HYPER_PRE_EQ:
+    name = HYPER_PRE_EQUAL;
+    break;
+  case SBIOp::HYPER_PRE_NEQ:
+    name = HYPER_PRE_NOT_EQUAL;
+    break;
+  case SBIOp::HYPER_PRE_LT:
+    name = HYPER_PRE_LESS;
+    break;
+  case SBIOp::HYPER_PRE_LEQ:
+    name = HYPER_PRE_LESS_EQUAL;
+    break;
   case SBIOp::HYPER_POST_GT:
     name = HYPER_POST_GREATER;
+    break;
+  case SBIOp::HYPER_POST_GEQ:
+    name = HYPER_POST_GREATER_EQUAL;
+    break;
+  case SBIOp::HYPER_POST_EQ:
+    name = HYPER_POST_EQUAL;
+    break;
+  case SBIOp::HYPER_POST_NEQ:
+    name = HYPER_POST_NOT_EQUAL;
+    break;
+  case SBIOp::HYPER_POST_LT:
+    name = HYPER_POST_LESS;
+    break;
+  case SBIOp::HYPER_POST_LEQ:
+    name = HYPER_POST_LESS_EQUAL;
     break;
   }
   auto FC = M.getOrInsertFunction(name, Type::getVoidTy(C), Type::getInt32Ty(C));

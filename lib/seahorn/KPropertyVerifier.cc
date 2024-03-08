@@ -567,13 +567,14 @@ static Expr generateDeltaExpr(std::vector<int> &pc_vec, std::vector<int> &dst, h
  * @param pc_vec a combinations of size k of pc values
  * @param pc_expr_map map between pc and its matching expression
  * @param k_subsets all subsets of k
+ * @param bottom_rel_expr holds the fdecl of the nullary pridicate that determines if the CHC system failed
  * @return HornRule for this specific combination of pc_vec
  */
 static HornRule generateDoomedPreExprForKPc(HornClauseDB::expr_set_type &pre_rules,
                                                             std::map<std::set<int>, Expr> &doomed_rels,
                                                             ExprVector &all_k_vars, std::vector<int> &pc_vec,
                                                             std::map<int, Expr> &pc_expr_map,
-                                                            std::set<std::set<int>> &k_subsets) {
+                                                            std::set<std::set<int>> &k_subsets, Expr bottom_rel_expr) {
   ExprSet allVars;
   ExprVector doomed_args;
   for (int i = 0; (unsigned int)i < pc_vec.size(); i++)
@@ -592,7 +593,7 @@ static HornRule generateDoomedPreExprForKPc(HornClauseDB::expr_set_type &pre_rul
   Expr body = boolop::land(boolop::land(doomed_expr_vector), pre_expr);
   allVars.insert(all_k_vars.begin(), all_k_vars.end());
 
-  return HornRule(allVars, boolop::limp(body, mk<FALSE>(all_k_vars[0]->efac())));
+  return HornRule(allVars, boolop::limp(body, bind::fapp(bottom_rel_expr)));
 }
 
 /**
@@ -749,7 +750,7 @@ void KPropertyVerifier::makeHyperVars(const Function *F, const ExprVector &vars,
     }
   }
 
-  print_vars(F, &k_vars);
+  //print_vars(F, &k_vars);
 }
 
 void KPropertyVerifier::makeDoomedRels(hyper_expr_map &vars, Function *fn,
@@ -778,7 +779,7 @@ void KPropertyVerifier::makeDoomedRels(hyper_expr_map &vars, Function *fn,
     Expr name = variant::tag(orig_name, suffix);
     (*doomed_rels)[subset] = bind::fdecl(name, sorts);
   }
-  print_doomed_rels(doomed_rels);
+  //print_doomed_rels(doomed_rels);
 }
 
 void KPropertyVerifier::getObservationPointExprs(std::map<std::set<int>, ExprVector> &obvPoint,
@@ -917,10 +918,10 @@ void KPropertyVerifier::getHyperExprsFromFunction(const Function *F, HornifyModu
 
     count++;
   }
-  print_obv_exprs(F, obvPoint);
-  print_pre_rules(F, pre_rules);
-  print_bad_rules(F, bad_rules);
-  print_valid_rules(F, valid_rules);
+  //print_obv_exprs(F, obvPoint);
+  //print_pre_rules(F, pre_rules);
+  //print_bad_rules(F, bad_rules);
+  //print_valid_rules(F, valid_rules);
 }
 
 /**
@@ -972,8 +973,8 @@ void KPropertyVerifier::getPcRels(const Function *F, const HornClauseDB::expr_se
   Expr fdecl = bind::fdecl(new_name, sorts);
   *pc_combined_rel = fdecl;
 
-  print_duplicated_pc_rels(F, new_rels);
-  print_combined_pc_rels(F, *pc_combined_rel);
+  //print_duplicated_pc_rels(F, new_rels);
+  //print_combined_pc_rels(F, *pc_combined_rel);
 }
 
 /**
@@ -1037,7 +1038,7 @@ void KPropertyVerifier::getTraceInfo(const Function *F, std::map<std::pair<int, 
     trace_info[std::pair<int,int>(src_bb_count, dst_bb_count)][2] = args3;
   }
 
-  print_trace_info(F, trace_info);
+  //print_trace_info(F, trace_info);
 }
 
 /**
@@ -1065,7 +1066,7 @@ void KPropertyVerifier::getTraceRulesFromInfo(const Function *F,
         getConvertedExprFromNarryAnd(it2->second[1], k_vars, i);
   }
 
-  print_trace_rules(F, trace_rules);
+  //print_trace_rules(F, trace_rules);
 }
 
 /**
@@ -1079,15 +1080,16 @@ void KPropertyVerifier::getTraceRulesFromInfo(const Function *F,
  * @param pc_expr_map map between pc and its matching expression
  * @param k_subsets all subsets of k
  * @param doomed_pre_expr the result of this function
+ * @param bottom_rel_expr holds the fdecl of the nullary pridicate that determines if the CHC system failed
  */
 void KPropertyVerifier::getDoomedPreExpr(HornClauseDB::expr_set_type &pre_rules,
                                           std::map<std::set<int>, Expr> &doomed_rels,
                                           ExprVector &all_k_vars, std::vector<std::vector<int>> &k_ary_pc_vectors,
                                           std::map<int, Expr> &pc_expr_map, std::set<std::set<int>> &k_subsets,
-                                          HornClauseDB::RuleVector &doomed_pre_expr) {
+                                          HornClauseDB::RuleVector &doomed_pre_expr, Expr bottom_rel_expr) {
   for (std::vector<int> pc_vec: k_ary_pc_vectors)
     doomed_pre_expr.push_back(generateDoomedPreExprForKPc(pre_rules, doomed_rels, all_k_vars, pc_vec,
-                                                            pc_expr_map, k_subsets));
+                                                            pc_expr_map, k_subsets, bottom_rel_expr));
   
   //print_doomed_pre_expr(doomed_pre_expr, k_ary_pc_vectors);
 }
@@ -1191,6 +1193,14 @@ bool KPropertyVerifier::runOnModule(Module &M) {
   m_interproc = hm.getInterProc();
   ExprFactory &m_efac = hm.getExprFactory();
 
+  /* Insert bottom_rel function to symbol table */
+  std::string bottom_rel_fn_name = std::string("hyper_bottom");
+  auto FC = M.getOrInsertFunction(bottom_rel_fn_name, Type::getVoidTy(M.getContext()));
+  auto *FN = dyn_cast<Function>(FC.getCallee());
+  Expr bottom_rel_expr_name = mkTerm<const Function *>(FN, m_efac);
+  ExprVector args = {mk<BOOL_TY>(m_efac)};
+  Expr bottom_rel_expr = bind::fdecl(bottom_rel_expr_name, args);
+
   std::set<std::set<int>> k_subsets = generateAllSubsets(hyper_k);
 
   for (Function &F : M) {
@@ -1198,16 +1208,20 @@ bool KPropertyVerifier::runOnModule(Module &M) {
     if (F.empty())
       continue;
     
-    runOnFunction(&F, m_efac, vars, rules, rels, k_subsets, hm, M, &out);
+    runOnFunction(&F, m_efac, vars, rules, rels, k_subsets, hm, M, bottom_rel_expr, &out);
   }
 
   db.resetDB();
+
+  db.registerRelation(bottom_rel_expr);
 
   for (Expr rel: out.relations)
     db.registerRelation(rel);
 
   for (HornRule rule: out.rules)
     db.addRule(rule);
+
+  db.addQuery(bind::fapp(bottom_rel_expr));
   
   return true;
 }
@@ -1215,7 +1229,7 @@ bool KPropertyVerifier::runOnModule(Module &M) {
 void KPropertyVerifier::runOnFunction(const Function *F, ExprFactory &m_efac, const ExprVector &vars,
                                       const HornClauseDB::RuleVector &rules, const HornClauseDB::expr_set_type &rels,
                                       std::set<std::set<int>> &k_subsets, HornifyModule &hm, Module &M,
-                                      struct functionResultAggregator *out)
+                                      Expr bottom_rel_expr, struct functionResultAggregator *out)
 {
   // TODO:: Think about how to change the variables type to support k threads and not only 2
   /* maps variable -> (map i-> variable variant in thread i) */
@@ -1286,7 +1300,8 @@ void KPropertyVerifier::runOnFunction(const Function *F, ExprFactory &m_efac, co
   k_ary_pc_vectors = generateAllVectors(max_pc_for_function, hyper_k);
   getTraceInfo(F, trace_info, rels, m_efac, rules, pc_expr_map, src_dst_map);
   getTraceRulesFromInfo(F, trace_info, k_vars, trace_rules);
-  getDoomedPreExpr(pre_rules, doomed_rels, all_k_vars, k_ary_pc_vectors, pc_expr_map, k_subsets, doomed_pre_expr);
+  getDoomedPreExpr(pre_rules, doomed_rels, all_k_vars, k_ary_pc_vectors, pc_expr_map, k_subsets, doomed_pre_expr,
+                    bottom_rel_expr);
   getTraceRules(F, all_k_vars, k_vars, pc_combined_rel, pc_rels, k_subsets, k_ary_pc_vectors, trace_info, doomed_rels,
                 trace_rules, final_trace_rules, pc_expr_map, src_dst_map);
   getValidRules(valid_rules, all_k_vars, k_ary_pc_vectors, doomed_rels, pc_expr_map, k_subsets, valid_horn_rules);

@@ -465,6 +465,13 @@ static void generateVectors(int n, int k, std::vector<std::vector<int>>& result,
   }
 }
 
+/**
+ * @brief This function should generate all pc vectors for k threads until max pc value of n
+ *
+ * @param n maximal pc value
+ * @param k number of threads
+ * @return vector containing all the different pc vectors
+ */
 static std::vector<std::vector<int>> generateAllVectors(int n, int k) {
   std::vector<std::vector<int>> result;
   std::vector<int> current(k);
@@ -726,19 +733,12 @@ static HornRule generateValidRuleForKPc(std::map<std::set<int>, Expr> &valid_rul
                                         bind::fapp(doomed_rels[subset], args)));
 }
 
-void KPropertyVerifier::makeHyperVars(const Function *F, const ExprVector &vars, ExprFactory &m_efac, Module &M,
+void KPropertyVerifier::makeHyperVars(const ExprVector &vars, ExprFactory &m_efac,
                                       hyper_expr_map &k_vars, ExprVector &all_k_vars) {
   int i;
   Expr new_var;
 
   for (const Expr &var : vars) {
-    std::stringstream st;
-    st << *bind::fname(var->left());
-    std::string var_name = st.str();
-    std::string func_name = F->getName().str();
-    if (var_name.find(func_name) == std::string::npos)
-      continue;
-
     k_vars.insert(std::pair<Expr, std::map<int, Expr>>(var, std::map<int, Expr>()));
     for (i = 0; i < hyper_k; i++) {
       Expr fdecl = bind::fname(var);
@@ -842,6 +842,23 @@ void KPropertyVerifier::getValidExprs(std::map<std::set<int>, ExprVector> &obvPo
   }
 }
 
+/**
+ * @brief This function should generate the special expressions for hyperproperty safety checking
+ * Meaning the valid rules, bad rules and pre rules
+ * This function also finds the max_pc we are interested in for the purpose of the verification
+ *
+ * @param F The function
+ * @param hm the horinfy module object
+ * @param m_efac expression factory
+ * @param M The module
+ * @param k_vars the map var -> var from thread i
+ * @param k_subsets all subsets of k
+ * @param pc_rels map between each thread number to its relation variant
+ * @param pre_rules output of this function
+ * @param bad_rules output of this function
+ * @param valid_rules output of this function
+ * @param max_pc output of this function
+ */
 void KPropertyVerifier::getHyperExprsFromFunction(const Function *F, HornifyModule &hm, ExprFactory &m_efac, Module &M,
                                                   hyper_expr_map &k_vars, std::set<std::set<int>> &k_subsets,
                                                   std::map<int, Expr> &pc_rels,
@@ -918,10 +935,6 @@ void KPropertyVerifier::getHyperExprsFromFunction(const Function *F, HornifyModu
 
     count++;
   }
-  //print_obv_exprs(F, obvPoint);
-  //print_pre_rules(F, pre_rules);
-  //print_bad_rules(F, bad_rules);
-  //print_valid_rules(F, valid_rules);
 }
 
 /**
@@ -1198,17 +1211,23 @@ bool KPropertyVerifier::runOnModule(Module &M) {
   auto FC = M.getOrInsertFunction(bottom_rel_fn_name, Type::getVoidTy(M.getContext()));
   auto *FN = dyn_cast<Function>(FC.getCallee());
   Expr bottom_rel_expr_name = mkTerm<const Function *>(FN, m_efac);
-  ExprVector args = {mk<BOOL_TY>(m_efac)};
-  Expr bottom_rel_expr = bind::fdecl(bottom_rel_expr_name, args);
+  Expr bottom_rel_expr = bind::fdecl(bottom_rel_expr_name, ExprVector({mk<BOOL_TY>(m_efac)}));
+
+  /* maps variable -> (map i-> variable variant in thread i) */
+  hyper_expr_map k_vars;
+
+  /* all variables variants for this function */
+  ExprVector all_k_vars;
 
   std::set<std::set<int>> k_subsets = generateAllSubsets(hyper_k);
+  makeHyperVars(vars, m_efac, k_vars, all_k_vars); /* Get new vars */
 
   for (Function &F : M) {
     // Skip empty functions
     if (F.empty())
       continue;
     
-    runOnFunction(&F, m_efac, vars, rules, rels, k_subsets, hm, M, bottom_rel_expr, &out);
+    runOnFunction(&F, m_efac, vars, rules, rels, k_subsets, hm, M, bottom_rel_expr, &out, all_k_vars, k_vars);
   }
 
   db.resetDB();
@@ -1229,11 +1248,9 @@ bool KPropertyVerifier::runOnModule(Module &M) {
 void KPropertyVerifier::runOnFunction(const Function *F, ExprFactory &m_efac, const ExprVector &vars,
                                       const HornClauseDB::RuleVector &rules, const HornClauseDB::expr_set_type &rels,
                                       std::set<std::set<int>> &k_subsets, HornifyModule &hm, Module &M,
-                                      Expr bottom_rel_expr, struct functionResultAggregator *out)
+                                      Expr bottom_rel_expr, struct functionResultAggregator *out,
+                                      ExprVector &all_k_vars, hyper_expr_map &k_vars)
 {
-  // TODO:: Think about how to change the variables type to support k threads and not only 2
-  /* maps variable -> (map i-> variable variant in thread i) */
-  hyper_expr_map k_vars;
   /* maps relation -> (map i-> relation variant in thread i) */
   hyper_expr_map k_rels;
   /* all doomed relations */
@@ -1249,8 +1266,6 @@ void KPropertyVerifier::runOnFunction(const Function *F, ExprFactory &m_efac, co
   /* maps subset of k -> valid expression for this subset */
   //TODO:: We might have an issue with this expression
   std::map<std::set<int>, Expr> valid_rules;
-  /* all variables variants for this function */
-  ExprVector all_k_vars;
   /* maximum pc for this function*/
   int max_pc_for_function;
 
@@ -1292,7 +1307,6 @@ void KPropertyVerifier::runOnFunction(const Function *F, ExprFactory &m_efac, co
   auto FC = M.getOrInsertFunction(doomed_name, Type::getVoidTy(M.getContext()));
   auto *FN = dyn_cast<Function>(FC.getCallee());
 
-  makeHyperVars(F, vars, m_efac, M, k_vars, all_k_vars); /* Get new vars */
   makeDoomedRels(k_vars, FN, k_subsets, m_efac, &doomed_rels);
   getPcRels(F, rels, pc_rels, m_efac, k_rels, &pc_combined_rel);
   getHyperExprsFromFunction(F, hm, m_efac, M, k_vars, k_subsets, pc_rels,

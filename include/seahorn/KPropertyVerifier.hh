@@ -29,7 +29,7 @@ namespace seahorn
     int hyper_k;
     bool m_interproc;
 
-    void makeHyperVars(const Function *F, const ExprVector &vars, ExprFactory &m_efac, Module &M,
+    void makeHyperVars(const ExprVector &vars, ExprFactory &m_efac,
                         hyper_expr_map &k_vars, ExprVector &all_k_vars);
     void makeDoomedRels(hyper_expr_map &vars, Function *fn,
                         std::set<std::set<int>> &k_subsets, ExprFactory &m_efac,
@@ -90,7 +90,8 @@ namespace seahorn
     void runOnFunction(const Function *F, ExprFactory &m_efac, const ExprVector &vars,
                                       const HornClauseDB::RuleVector &rules, const HornClauseDB::expr_set_type &rels,
                                       std::set<std::set<int>> &k_subsets, HornifyModule &hm, Module &M,
-                                      Expr bottom_rel_expr, struct functionResultAggregator *out);
+                                      Expr bottom_rel_expr, struct functionResultAggregator *out,
+                                      ExprVector &all_k_vars, hyper_expr_map &k_vars);
   public:
     static char ID;
     KPropertyVerifier (int hyper_k, bool interproc = false) : llvm::ModulePass (ID), hyper_k(hyper_k), m_interproc(interproc) {}

@@ -37,8 +37,7 @@ bool PromoteHyperCalls::runOnModule(Module &M, SeaBuiltinsInfo& SBI) {
         runOnFunction(F);
         splitHyperCallsToOwnBasicBlocks(F);
     }
-    errs() << "Module:\n";
-    M.print(errs(), NULL);
+
     return true;
 }
 

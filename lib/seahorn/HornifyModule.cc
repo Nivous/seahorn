@@ -158,6 +158,8 @@ bool HornifyModule::runOnModule(Module &M) {
   ScopedStats _st("HornifyModule");
   auto &SBI = getAnalysis<SeaBuiltinsInfoWrapperPass>().getSBI();
 
+  /* Promote the hyper calls before hornigying the module
+  That should be done because this pass is going to modify the CGF of the module */
   if (hyper_k > 1)
     PromoteHyperCalls().runOnModule(M, SBI);
 

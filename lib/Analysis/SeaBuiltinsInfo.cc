@@ -47,6 +47,7 @@ using namespace llvm;
 #define HYPER_POST_LESS "hyper.post.lt"
 #define HYPER_POST_LESS_EQUAL "hyper.post.leq"
 #define HYPER_NON_DETERMINISTIC "hyper.non.det"
+#define HYPER_ASSUME_FN "hyper.assume"
 
 SeaBuiltinsOp
 seahorn::SeaBuiltinsInfo::getSeaBuiltinOp(const llvm::CallBase &cb) const {
@@ -90,6 +91,7 @@ seahorn::SeaBuiltinsInfo::getSeaBuiltinOp(const llvm::CallBase &cb) const {
       .Case(HYPER_POST_LESS, SBIOp::HYPER_POST_LT)
       .Case(HYPER_POST_LESS_EQUAL, SBIOp::HYPER_POST_LEQ)
       .Case(HYPER_NON_DETERMINISTIC, SBIOp::HYPER_NON_DET)
+      .Case(HYPER_ASSUME_FN, SBIOp::HYPER_ASSUME)
       .Default(SBIOp::UNKNOWN);
 }
 
@@ -152,6 +154,7 @@ llvm::Function *SeaBuiltinsInfo::mkSeaBuiltinFn(SeaBuiltinsOp op,
   case SBIOp::HYPER_POST_LT:
   case SBIOp::HYPER_POST_LEQ:
   case SBIOp::HYPER_NON_DET:
+  case SBIOp::HYPER_ASSUME:
     return mkHyper(M, op);
   }
   llvm_unreachable(nullptr);
@@ -518,10 +521,15 @@ Function *SeaBuiltinsInfo::mkHyper(Module &M, SeaBuiltinsOp op) {
   case SBIOp::HYPER_NON_DET:
     name = HYPER_NON_DETERMINISTIC;
     break;
+  case SBIOp::HYPER_ASSUME:
+    name = HYPER_ASSUME_FN;
+    break;
   }
 
   if (op == SBIOp::HYPER_NON_DET)
     FC = M.getOrInsertFunction(name, Type::getInt32Ty(C));
+  else if (op == SBIOp::HYPER_ASSUME)
+    FC = M.getOrInsertFunction(name, Type::getVoidTy(C), Type::getInt1Ty(C));
   else
     FC = M.getOrInsertFunction(name, Type::getVoidTy(C), Type::getInt32Ty(C));
   auto *FN = dyn_cast<Function>(FC.getCallee());

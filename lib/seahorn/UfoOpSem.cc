@@ -1126,6 +1126,10 @@ struct OpSemHyperVisitor : public InstVisitor<OpSemHyperVisitor>, OpSemBase {
       llvm::errs() << "Currently hyper properties supports only k=2.\n";
   }
 
+  void handleHyperAssume(Expr var) {
+      side(var);
+  }
+
   void visitCallBase(CallBase &CB) {
     assert(isa<CallInst>(CB));
     const Function *fn = CB.getCalledFunction();
@@ -1146,6 +1150,8 @@ struct OpSemHyperVisitor : public InstVisitor<OpSemHyperVisitor>, OpSemBase {
         handleHyperLT(c);
       if (fn->getName().equals("hyper.pre.leq") || fn->getName().equals("hyper.post.leq"))
         handleHyperLEQ(c);
+      if (fn->getName().equals("hyper.assume"))
+        handleHyperAssume(c);
     }
   }
 }; // OpSemHyperVisitor

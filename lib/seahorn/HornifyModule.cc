@@ -337,6 +337,8 @@ bool HornifyModule::runOnModule(Module &M) {
       Changed = (runOnFunction(*f) || Changed);
   }
 
+  M.print(errs(), NULL);
+
   if (!m_db.hasQuery()) {
     // --- This may happen if the exit block of main is unreachable
     //     but still the main function can fail.

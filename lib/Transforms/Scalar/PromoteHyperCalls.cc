@@ -40,6 +40,7 @@ bool PromoteHyperCalls::runOnModule(Module &M, SeaBuiltinsInfo& SBI) {
     m_hyper_post_lt = SBI.mkSeaBuiltinFn(SBIOp::HYPER_POST_LT, M);
     m_hyper_post_leq = SBI.mkSeaBuiltinFn(SBIOp::HYPER_POST_LEQ, M);
     m_hyper_non_det = SBI.mkSeaBuiltinFn(SBIOp::HYPER_NON_DET, M);
+    m_hyper_assume = SBI.mkSeaBuiltinFn(SBIOp::HYPER_ASSUME, M);
 
     for (auto &F : M) {
         runOnFunction(F);
@@ -50,7 +51,7 @@ bool PromoteHyperCalls::runOnModule(Module &M, SeaBuiltinsInfo& SBI) {
 }
 
 bool PromoteHyperCalls::runOnFunction(Function &F) {
-    SmallVector<Instruction *, 16> toKill;
+    SmallVector<Instruction *, 32> toKill;
 
     Function *nfn;
     bool Changed = false;
@@ -104,7 +105,8 @@ bool PromoteHyperCalls::runOnFunction(Function &F) {
         else if (fn->getName().equals("__hyper_non_det")) {
             nfn = m_hyper_non_det;
             send_args = false;
-        }
+        } else if (fn->getName().equals("__hyper_assume"))
+            nfn = m_hyper_assume;
         else
           assert(0 && "Unknown hyper call");
 
@@ -153,7 +155,8 @@ void PromoteHyperCalls::splitHyperCallsToOwnBasicBlocks(Function &F) {
             continue;
 
         if (fn && (fn->getName().startswith("hyper.pre") ||
-            fn->getName().startswith("hyper.post")))
+            fn->getName().startswith("hyper.post") ||
+            fn->getName().equals("hyper.assume")))
             toSplit.push_back(&I);
     }
 

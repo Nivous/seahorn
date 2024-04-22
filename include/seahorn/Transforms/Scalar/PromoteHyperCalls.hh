@@ -31,6 +31,7 @@ namespace seahorn
     Function *m_hyper_post_lt;
     Function *m_hyper_post_leq;
     Function *m_hyper_non_det;
+    Function *m_hyper_assume;
 
     bool runOnModule(Module &M, SeaBuiltinsInfo& SBI);
     bool runOnFunction(Function &F);

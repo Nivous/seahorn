@@ -39,7 +39,7 @@ namespace seahorn
     void getHyperExprsFromFunction(const Function *F, HornifyModule &hm, ExprFactory &m_efac, Module &M,
                                     hyper_expr_map &k_vars, std::set<std::set<int>> &k_subsets,
                                     std::map<int, Expr> &pc_rels,
-                                    ExprVector &pre_rules,
+                                    ExprVector &pre_rules, std::map<int, Expr> &assumes,
                                     int *max_pc, int *min_pre_pc, std::set<int> &obv_point_pc,
                                     std::map<int, Expr> &obv_point_to_post);
     void getPcRels(const Function *F, const HornClauseDB::expr_set_type &orig_rels,

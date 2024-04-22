@@ -88,6 +88,9 @@ extern void __hyper_post_leq(int);
 /* non deterministic value for variable */
 extern int __hyper_non_det(void);
 
+/* Assumptions for hyper properties verification*/
+extern void __hyper_assume(bool);
+
 #ifdef __cplusplus
 }
 #endif

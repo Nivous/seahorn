@@ -869,7 +869,7 @@ void KPropertyVerifier::getValidExprs(std::map<int, std::map<int, Expr>> &obvPoi
 void KPropertyVerifier::getHyperExprsFromFunction(const Function *F, HornifyModule &hm, ExprFactory &m_efac, Module &M,
                                                   hyper_expr_map &k_vars, std::set<std::set<int>> &k_subsets,
                                                   std::map<int, Expr> &pc_rels,
-                                                  ExprVector &pre_rules,
+                                                  ExprVector &pre_rules, std::map<int, Expr> &assumes,
                                                   int *max_pc, int *min_pre_pc, std::set<int> &obv_point_pc,
                                                   std::map<int, Expr> &obv_point_to_post) {
   const LiveSymbols &ls = hm.getLiveSybols(*F);
@@ -925,19 +925,18 @@ void KPropertyVerifier::getHyperExprsFromFunction(const Function *F, HornifyModu
 
       if (fn->getName().startswith("hyper.pre.")) {
         pre_rules.push_back(side[0]);
-        if (*min_pre_pc > count)
-          *min_pre_pc = count;
-      }
+        if (*min_pre_pc > count + 1)
+          *min_pre_pc = count + 1;
+      } else if (fn->getName().startswith("hyper.post.")) {
+        obv_point_pc.insert(count + 1);
+        obv_point_to_post[count + 1] = side[0];
 
-      if (fn->getName().startswith("hyper.post.")) {
-        obv_point_pc.insert(count);
-        obv_point_to_post[count] = side[0];
-
-        if (*max_pc < count)
-          *max_pc = count;
-      }
+        if (*max_pc < count + 1)
+          *max_pc = count + 1;
+      } else if (fn->getName().startswith("hyper.assume."))
+        assumes[count + 1] = side[0];
     }
-
+    
     count++;
   }
 }
@@ -1356,6 +1355,9 @@ void KPropertyVerifier::runOnFunction(const Function *F, ExprFactory &m_efac, co
   /* map between each src bb to vector of all possible dst bb*/
   std::map<int, std::vector<int>> src_dst_map;
 
+  /* map between pc of each hyper.assume call to the boolean representing the assumption */
+  std::map<int, Expr> assumes;
+
   /* Insert doomed state function to symbol table */
   std::string doomed_name = std::string(DOOMED_STATE_FUNCTION_NAME) + std::string("_") + F->getName().str();
   auto FC = M.getOrInsertFunction(doomed_name, Type::getVoidTy(M.getContext()));
@@ -1365,7 +1367,7 @@ void KPropertyVerifier::runOnFunction(const Function *F, ExprFactory &m_efac, co
   makeDoomedRels(k_vars, FN, k_subsets, m_efac, &doomed_rels);
   getPcRels(F, rels, pc_rels, m_efac, k_rels, &pc_combined_rel);
   getHyperExprsFromFunction(F, hm, m_efac, M, k_vars, k_subsets, pc_rels,
-                            pre_rules, &max_pc_for_function, &min_pre_pc,
+                            pre_rules, assumes, &max_pc_for_function, &min_pre_pc,
                             obv_point_pc, obv_point_to_post);
   k_ary_pc_vectors = generateAllVectors(max_pc_for_function, hyper_k);
   getTraceInfo(F, trace_info, rels, m_efac, rules, pc_expr_map, src_dst_map);

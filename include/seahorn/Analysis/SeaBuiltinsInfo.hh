@@ -44,6 +44,7 @@ enum class SeaBuiltinsOp {
   HYPER_POST_LT,      /* hyper.post.lt */
   HYPER_POST_LEQ,     /* hyper.post.leq */
   HYPER_NON_DET,      /* hyper.non.det */
+  HYPER_ASSUME,       /* hyper.assume */
   UNKNOWN
 };
 

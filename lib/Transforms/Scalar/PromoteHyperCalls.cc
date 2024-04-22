@@ -8,11 +8,18 @@
 
 #include "boost/range.hpp"
 
+#include "llvm/IR/Instructions.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
 #include <string>
 using namespace llvm;
 
 namespace seahorn {
+
+static void changeCall(Instruction *I, Function *nfn) {
+    CallInst *c = dyn_cast<CallInst>(I);
+    c->setCalledFunction(nfn);
+}
 
 bool PromoteHyperCalls::runOnModule(Module &M, SeaBuiltinsInfo& SBI) {
     ScopedStats _st("PromoteHyperCalls");
@@ -32,6 +39,7 @@ bool PromoteHyperCalls::runOnModule(Module &M, SeaBuiltinsInfo& SBI) {
     m_hyper_post_neq = SBI.mkSeaBuiltinFn(SBIOp::HYPER_POST_NEQ, M);
     m_hyper_post_lt = SBI.mkSeaBuiltinFn(SBIOp::HYPER_POST_LT, M);
     m_hyper_post_leq = SBI.mkSeaBuiltinFn(SBIOp::HYPER_POST_LEQ, M);
+    m_hyper_non_det = SBI.mkSeaBuiltinFn(SBIOp::HYPER_NON_DET, M);
 
     for (auto &F : M) {
         runOnFunction(F);
@@ -47,6 +55,7 @@ bool PromoteHyperCalls::runOnFunction(Function &F) {
     Function *nfn;
     bool Changed = false;
     for (auto &I : instructions(F)) {
+        bool send_args = true;
         if (!isa<CallInst>(&I))
             continue;
 
@@ -92,16 +101,24 @@ bool PromoteHyperCalls::runOnFunction(Function &F) {
             nfn = m_hyper_post_lt;
         else if (fn->getName().equals("__hyper_post_leq"))
             nfn = m_hyper_post_leq;
+        else if (fn->getName().equals("__hyper_non_det")) {
+            nfn = m_hyper_non_det;
+            send_args = false;
+        }
         else
           assert(0 && "Unknown hyper call");
 
         // Generates code.
         IRBuilder<> Builder(F.getContext());
         Builder.SetInsertPoint(&I);
-        Builder.CreateCall(nfn, (Value *)arg0);
+        if (send_args)
+            Builder.CreateCall(nfn, (Value *)arg0);
+        else
+            changeCall(&I, nfn);
 
         // Remove the original instruction.
-        toKill.push_back(&I);
+        if (send_args)
+            toKill.push_back(&I);
     }
   }
 
@@ -135,7 +152,8 @@ void PromoteHyperCalls::splitHyperCallsToOwnBasicBlocks(Function &F) {
         if (fn && !fn->empty())
             continue;
 
-        if (fn && fn->getName().startswith("hyper"))
+        if (fn && (fn->getName().startswith("hyper.pre") ||
+            fn->getName().startswith("hyper.post")))
             toSplit.push_back(&I);
     }
 

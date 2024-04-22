@@ -1130,7 +1130,8 @@ struct OpSemHyperVisitor : public InstVisitor<OpSemHyperVisitor>, OpSemBase {
     assert(isa<CallInst>(CB));
     const Function *fn = CB.getCalledFunction();
 
-    if (fn && fn->getName().startswith("hyper.")) {
+    if (fn && (fn->getName().startswith("hyper.pre") ||
+        fn->getName().startswith("hyper.post"))) {
       Expr c = lookup(*CB.getOperand(0));
 
       if (fn->getName().equals("hyper.pre.gt") || fn->getName().equals("hyper.post.gt"))
@@ -1145,8 +1146,7 @@ struct OpSemHyperVisitor : public InstVisitor<OpSemHyperVisitor>, OpSemBase {
         handleHyperLT(c);
       if (fn->getName().equals("hyper.pre.leq") || fn->getName().equals("hyper.post.leq"))
         handleHyperLEQ(c);
-    } else
-      visitInstruction(CB);
+    }
   }
 }; // OpSemHyperVisitor
 } // namespace

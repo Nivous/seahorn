@@ -40,7 +40,7 @@ namespace seahorn
                                     hyper_expr_map &k_vars, std::set<std::set<int>> &k_subsets,
                                     std::map<int, Expr> &pc_rels,
                                     ExprVector &pre_rules,
-                                    int *max_pc, std::set<int> &obv_point_pc,
+                                    int *max_pc, int *min_pre_pc, std::set<int> &obv_point_pc,
                                     std::map<int, Expr> &obv_point_to_post);
     void getPcRels(const Function *F, const HornClauseDB::expr_set_type &orig_rels,
                     std::map<int, Expr> &new_rels, ExprFactory &m_efac, hyper_expr_map &k_rels,
@@ -74,7 +74,7 @@ namespace seahorn
                           std::map<std::set<int>, Expr> &doomed_rels,
                           ExprVector &all_k_vars, std::set<std::set<int>> &k_subsets,
                           HornClauseDB::RuleVector &doomed_pre_expr, Expr bottom_rel_expr,
-                          ExprVector &pc_vars);
+                          ExprVector &pc_vars ,std::map<int, Expr> &pc_expr_map);
     void getValidRules(std::map<int, std::map<std::set<int>, Expr>> &valid_rules,
                         ExprVector &all_k_vars,
                         std::map<std::set<int>, Expr> &doomed_rels,

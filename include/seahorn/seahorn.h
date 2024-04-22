@@ -85,6 +85,9 @@ extern void __hyper_post_lt(int);
 /* When comparing 2 different executions arg1 <= arg2 */
 extern void __hyper_post_leq(int);
 
+/* non deterministic value for variable */
+extern int __hyper_non_det(void);
+
 #ifdef __cplusplus
 }
 #endif

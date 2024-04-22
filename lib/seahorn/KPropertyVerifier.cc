@@ -1,6 +1,7 @@
 #include "seahorn/KPropertyVerifier.hh"
 #include "seahorn/Expr/ExprCore.hh"
 #include "seahorn/Expr/ExprOpBind.hh"
+#include "seahorn/Expr/ExprOpBool.hh"
 #include "seahorn/UfoOpSem.hh"
 #include "seahorn/Support/ExprSeahorn.hh"
 #include "seahorn/Support/CFG.hh"
@@ -24,8 +25,7 @@ void KPropertyVerifier::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.setPreservesAll();
 }
 
-static void print_vars(const Function *F, hyper_expr_map *k_vars) {
-  errs() << "The new variables for function: " << F->getName() << "\n";
+static void print_vars(hyper_expr_map *k_vars) {
   for(hyper_expr_map::iterator it = k_vars->begin(); it != k_vars->end(); ++it)
   {
     errs() << "The new variables created for var: " << *(it->first) << "\n";
@@ -202,7 +202,7 @@ static void print_bad_rules(const Function *F, ExprVector &bad_rules) {
     errs() << *e << "\n";
 }
 
-static void print_pre_rules(const Function *F, HornClauseDB::expr_set_type &pre_rules) {
+static void print_pre_rules(const Function *F, ExprVector &pre_rules) {
   errs() << "Pre expressions for function: " << F->getName() << "\n";
   errs() << "Pre rules are:\n";
   for (Expr e : pre_rules)
@@ -523,13 +523,15 @@ static Expr getDestinationPC(Expr e) {
  * @param trace_info the info we extracted from the rules in getTraceInfo
  * @param trace_rules the rules we extracted from the info (i.e transformed to using the variants)
  * @param pc_expr_map map between pc and its matching expression
+ * @param m_efac ExprFactory
  * @return The delta expression
  */
 static Expr generateDeltaExpr(std::vector<int> &pc_vec, std::vector<int> &dst, hyper_expr_map &k_vars,
                               Expr pc_combined_rel, std::map<int, Expr> &pc_rels, std::set<int> &subset,
                               std::map<std::pair<int, int>, ExprVector[3]> &trace_info,
                               std::map<std::pair<int, int>, std::map<int, Expr>> &trace_rules,
-                              std::map<int, Expr> &pc_expr_map) {
+                              std::map<int, Expr> &pc_expr_map,
+                              ExprFactory &m_efac) {
   ExprVector rules;
   ExprVector args_head;
   ExprVector args_body;
@@ -552,8 +554,8 @@ static Expr generateDeltaExpr(std::vector<int> &pc_vec, std::vector<int> &dst, h
     }
   }
 
-  rules.push_back(bind::fapp(pc_combined_rel, args_head));
-  rules.push_back(bind::fapp(pc_combined_rel, args_body));
+  //rules.push_back(bind::fapp(pc_combined_rel, args_head));
+  //rules.push_back(bind::fapp(pc_combined_rel, args_body));
   for (int thread: subset) {
     args_head.clear();
     if (trace_rules.find(std::pair<int, int>(pc_vec[thread], dst[thread])) != trace_rules.end())
@@ -561,8 +563,11 @@ static Expr generateDeltaExpr(std::vector<int> &pc_vec, std::vector<int> &dst, h
     args_head.push_back(pc_expr_map[dst[thread]]);
     for (int i = 0; (unsigned int)i < bind::domainSz(pc_rels[0]) - 1; i++)
       args_head.push_back(k_vars[trace_info[std::pair<int, int>(pc_vec[thread], dst[thread])][2][i]][thread]);
-    rules.push_back(bind::fapp(pc_rels[thread], args_head));
+    //rules.push_back(bind::fapp(pc_rels[thread], args_head));
   }
+
+  if (rules.empty())
+    return mk<TRUE>(m_efac);
 
   return boolop::land(rules);
 }
@@ -670,7 +675,7 @@ static std::map<std::set<int>, HornClauseDB::RuleVector> generateRulesForKPc(con
       doomed_body = boolop::land(doomed_body_apps);
 
       Expr delta = generateDeltaExpr(pc_vec, dst, k_vars, pc_combined_rel, pc_rels, subset, trace_info, trace_rules,
-                                      pc_expr_map);
+                                      pc_expr_map, all_k_vars[0]->efac());
       HornRule rule = HornRule(allVars, boolop::limp(boolop::land(doomed_body, delta), head));
       res[subset].push_back(rule);
     }
@@ -752,7 +757,7 @@ void KPropertyVerifier::makeHyperVars(const ExprVector &vars, ExprFactory &m_efa
     }
   }
 
-  //print_vars(F, &k_vars);
+  //print_vars(&k_vars);
 }
 
 void KPropertyVerifier::makePcVars(ExprVector &pc_vars, const Function *F, ExprFactory &m_efac)
@@ -865,7 +870,7 @@ void KPropertyVerifier::getHyperExprsFromFunction(const Function *F, HornifyModu
                                                   hyper_expr_map &k_vars, std::set<std::set<int>> &k_subsets,
                                                   std::map<int, Expr> &pc_rels,
                                                   ExprVector &pre_rules,
-                                                  int *max_pc, std::set<int> &obv_point_pc,
+                                                  int *max_pc, int *min_pre_pc, std::set<int> &obv_point_pc,
                                                   std::map<int, Expr> &obv_point_to_post) {
   const LiveSymbols &ls = hm.getLiveSybols(*F);
   UfoOpSem m_sem(m_efac, hm, M.getDataLayout());
@@ -886,11 +891,8 @@ void KPropertyVerifier::getHyperExprsFromFunction(const Function *F, HornifyModu
   ExprVector args;
   SymStore s(m_efac);
 
-  for (const Expr &v : glive)
-    args.push_back(s.read(v));
-  allVars.insert(args.begin(), args.end());
-
   for (auto &BB : *F) {
+    bool analyzed_block = false;
     const BasicBlock *bb = &BB;
     for (const BasicBlock *dst : succs(*bb)) {
       allVars.clear();
@@ -905,24 +907,27 @@ void KPropertyVerifier::getHyperExprsFromFunction(const Function *F, HornifyModu
       allVars.insert(++args.begin(), args.end());
       assert(std::all_of(allVars.begin(), allVars.end(), bind::IsConst()));
 
-      // TODO: Implement more hyper functions
       // Analyze block
       ExprVector side;
       m_sem.execEdg(s, BB, *dst, side);
+      if (!side.empty())
+        side.clear();
       m_sem.execHyper(s, BB, side, hyper_k, k_vars);
 
       const Instruction &inst = bb->front();
-      if (!isa<CallInst>(&inst))
+      if (!isa<CallInst>(&inst) || analyzed_block)
         continue;
 
       const CallInst &CI = cast<CallInst>(inst);
       const Function *fn = CI.getCalledFunction();
 
-      if (!fn)
-        continue;
+      analyzed_block = true;
 
-      if (fn->getName().startswith("hyper.pre."))
+      if (fn->getName().startswith("hyper.pre.")) {
         pre_rules.push_back(side[0]);
+        if (*min_pre_pc > count)
+          *min_pre_pc = count;
+      }
 
       if (fn->getName().startswith("hyper.post.")) {
         obv_point_pc.insert(count);
@@ -1099,9 +1104,11 @@ void KPropertyVerifier::getDoomedPreExpr(ExprVector &pre_rules,
                                           std::map<std::set<int>, Expr> &doomed_rels,
                                           ExprVector &all_k_vars, std::set<std::set<int>> &k_subsets,
                                           HornClauseDB::RuleVector &doomed_pre_expr, Expr bottom_rel_expr,
-                                          ExprVector &pc_vars) {
+                                          ExprVector &pc_vars, std::map<int, Expr> &pc_expr_map) {
   ExprSet allVars;
   ExprVector doomed_args;
+  ExprVector rules;
+  ExprVector init;
 
   allVars.insert(all_k_vars.begin(), all_k_vars.end());
   allVars.insert(pc_vars.begin(), pc_vars.end());
@@ -1115,7 +1122,14 @@ void KPropertyVerifier::getDoomedPreExpr(ExprVector &pre_rules,
   for (std::set<int> subset: k_subsets)
     doomed_expr_vector.push_back(bind::fapp(doomed_rels[subset], doomed_args));
 
-  Expr body = boolop::land(boolop::land(doomed_expr_vector), pre_expr);
+  for (int i = 0; i < hyper_k; i++)
+    init.push_back(mk<EQ>(pc_vars[i], pc_expr_map[0]));
+
+  rules.push_back(boolop::land(doomed_expr_vector));
+  rules.push_back(boolop::land(init));
+  rules.push_back(pre_expr);
+
+  Expr body = boolop::land(rules);
 
   doomed_pre_expr.push_back(HornRule(allVars, boolop::limp(body, bind::fapp(bottom_rel_expr))));
 }
@@ -1306,6 +1320,8 @@ void KPropertyVerifier::runOnFunction(const Function *F, ExprFactory &m_efac, co
   std::map<int, std::map<std::set<int>, Expr>> valid_rules;
   /* maximum pc for this function*/
   int max_pc_for_function = 0;
+  /* first pre rule location in this function */
+  int min_pre_pc = 0xFFFFFFFF;
 
   /* This map should hold the final trace rules in the reduction
   (combination of size k of pc values) -> (subset -> rules) */
@@ -1349,7 +1365,7 @@ void KPropertyVerifier::runOnFunction(const Function *F, ExprFactory &m_efac, co
   makeDoomedRels(k_vars, FN, k_subsets, m_efac, &doomed_rels);
   getPcRels(F, rels, pc_rels, m_efac, k_rels, &pc_combined_rel);
   getHyperExprsFromFunction(F, hm, m_efac, M, k_vars, k_subsets, pc_rels,
-                            pre_rules, &max_pc_for_function,
+                            pre_rules, &max_pc_for_function, &min_pre_pc,
                             obv_point_pc, obv_point_to_post);
   k_ary_pc_vectors = generateAllVectors(max_pc_for_function, hyper_k);
   getTraceInfo(F, trace_info, rels, m_efac, rules, pc_expr_map, src_dst_map);
@@ -1357,7 +1373,8 @@ void KPropertyVerifier::runOnFunction(const Function *F, ExprFactory &m_efac, co
   getValidExprs(obvPoint, k_subsets, valid_rules);
   getBadExprs(obvPoint, bad_rules, obv_point_to_post);
   getTraceRulesFromInfo(F, trace_info, k_vars, trace_rules);
-  getDoomedPreExpr(pre_rules, doomed_rels, all_k_vars, k_subsets, doomed_pre_expr, bottom_rel_expr, pc_vars);
+  getDoomedPreExpr(pre_rules, doomed_rels, all_k_vars, k_subsets, doomed_pre_expr, bottom_rel_expr, pc_vars,
+                    pc_expr_map);
   getTraceRules(F, all_k_vars, k_vars, pc_combined_rel, pc_rels, k_subsets, k_ary_pc_vectors, trace_info, doomed_rels,
                 trace_rules, final_trace_rules, pc_expr_map, src_dst_map);
   getValidRules(valid_rules, all_k_vars, doomed_rels, k_subsets, valid_horn_rules, pc_vars);

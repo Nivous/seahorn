@@ -3,6 +3,7 @@
 #include "seahorn/InitializePasses.hh"
 #include "seahorn/Passes.hh"
 
+#include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Module.h"
@@ -45,6 +46,7 @@ using namespace llvm;
 #define HYPER_POST_NOT_EQUAL "hyper.post.neq"
 #define HYPER_POST_LESS "hyper.post.lt"
 #define HYPER_POST_LESS_EQUAL "hyper.post.leq"
+#define HYPER_NON_DETERMINISTIC "hyper.non.det"
 
 SeaBuiltinsOp
 seahorn::SeaBuiltinsInfo::getSeaBuiltinOp(const llvm::CallBase &cb) const {
@@ -87,6 +89,7 @@ seahorn::SeaBuiltinsInfo::getSeaBuiltinOp(const llvm::CallBase &cb) const {
       .Case(HYPER_POST_NOT_EQUAL, SBIOp::HYPER_POST_NEQ)
       .Case(HYPER_POST_LESS, SBIOp::HYPER_POST_LT)
       .Case(HYPER_POST_LESS_EQUAL, SBIOp::HYPER_POST_LEQ)
+      .Case(HYPER_NON_DETERMINISTIC, SBIOp::HYPER_NON_DET)
       .Default(SBIOp::UNKNOWN);
 }
 
@@ -148,6 +151,7 @@ llvm::Function *SeaBuiltinsInfo::mkSeaBuiltinFn(SeaBuiltinsOp op,
   case SBIOp::HYPER_POST_NEQ:
   case SBIOp::HYPER_POST_LT:
   case SBIOp::HYPER_POST_LEQ:
+  case SBIOp::HYPER_NON_DET:
     return mkHyper(M, op);
   }
   llvm_unreachable(nullptr);
@@ -470,6 +474,7 @@ Function *SeaBuiltinsInfo::mkHyper(Module &M, SeaBuiltinsOp op) {
   auto &C = M.getContext();
   const char *name = nullptr;
   using SBIOp = SeaBuiltinsOp;
+  FunctionCallee FC;
   switch (op) {
   default:
     assert(false);
@@ -510,8 +515,15 @@ Function *SeaBuiltinsInfo::mkHyper(Module &M, SeaBuiltinsOp op) {
   case SBIOp::HYPER_POST_LEQ:
     name = HYPER_POST_LESS_EQUAL;
     break;
+  case SBIOp::HYPER_NON_DET:
+    name = HYPER_NON_DETERMINISTIC;
+    break;
   }
-  auto FC = M.getOrInsertFunction(name, Type::getVoidTy(C), Type::getInt32Ty(C));
+
+  if (op == SBIOp::HYPER_NON_DET)
+    FC = M.getOrInsertFunction(name, Type::getInt32Ty(C));
+  else
+    FC = M.getOrInsertFunction(name, Type::getVoidTy(C), Type::getInt32Ty(C));
   auto *FN = dyn_cast<Function>(FC.getCallee());
   if (FN) {
     setCommonAttrs(*FN);

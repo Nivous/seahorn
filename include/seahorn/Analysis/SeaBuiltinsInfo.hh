@@ -31,18 +31,19 @@ enum class SeaBuiltinsOp {
   FREE,               /* sea.free */
   SET_SHADOWMEM,      /* sea.set_shadowmem */
   GET_SHADOWMEM,      /* sea.get_shadowmem */
-  HYPER_PRE_GT,      /* hyper.pre.gt */
+  HYPER_PRE_GT,       /* hyper.pre.gt */
   HYPER_PRE_GEQ,      /* hyper.pre.geq */
-  HYPER_PRE_EQ,      /* hyper.pre.eq */
+  HYPER_PRE_EQ,       /* hyper.pre.eq */
   HYPER_PRE_NEQ,      /* hyper.pre.neq */
-  HYPER_PRE_LT,      /* hyper.pre.lt */
+  HYPER_PRE_LT,       /* hyper.pre.lt */
   HYPER_PRE_LEQ,      /* hyper.pre.leq */
   HYPER_POST_GT,      /* hyper.post.gt */
-  HYPER_POST_GEQ,      /* hyper.post.geq */
+  HYPER_POST_GEQ,     /* hyper.post.geq */
   HYPER_POST_EQ,      /* hyper.post.eq */
-  HYPER_POST_NEQ,      /* hyper.post.neq */
+  HYPER_POST_NEQ,     /* hyper.post.neq */
   HYPER_POST_LT,      /* hyper.post.lt */
-  HYPER_POST_LEQ,      /* hyper.post.leq */
+  HYPER_POST_LEQ,     /* hyper.post.leq */
+  HYPER_NON_DET,      /* hyper.non.det */
   UNKNOWN
 };
 

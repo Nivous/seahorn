@@ -40,7 +40,7 @@ namespace seahorn
                                     hyper_expr_map &k_vars, std::set<std::set<int>> &k_subsets,
                                     std::map<int, Expr> &pc_rels,
                                     ExprVector &pre_rules, std::map<int, Expr> &assumes,
-                                    int *max_pc, int *min_pre_pc, std::set<int> &obv_point_pc,
+                                    int *max_pc, unsigned int *min_pre_pc, std::set<int> &obv_point_pc,
                                     std::map<int, Expr> &obv_point_to_post);
     void getPcRels(const Function *F, const HornClauseDB::expr_set_type &orig_rels,
                     std::map<int, Expr> &new_rels, ExprFactory &m_efac, hyper_expr_map &k_rels,
@@ -74,7 +74,7 @@ namespace seahorn
                           std::map<std::set<int>, Expr> &doomed_rels,
                           ExprVector &all_k_vars, std::set<std::set<int>> &k_subsets,
                           HornClauseDB::RuleVector &doomed_pre_expr, Expr bottom_rel_expr,
-                          ExprVector &pc_vars ,std::map<int, Expr> &pc_expr_map);
+                          ExprVector &pc_vars ,std::map<int, Expr> &pc_expr_map, int min_pre_pc);
     void getValidRules(std::map<int, std::map<std::set<int>, Expr>> &valid_rules,
                         ExprVector &all_k_vars,
                         std::map<std::set<int>, Expr> &doomed_rels,
@@ -86,6 +86,10 @@ namespace seahorn
                       std::set<std::set<int>> &k_subsets,
                       HornClauseDB::RuleVector &bad_horn_rules,
                       ExprVector &pc_vars);
+    void getAssumeRules(std::map<int, Expr> &assumes, std::map<int, Expr> &pc_expr_map,
+                        ExprVector &pc_vars, std::set<std::set<int>> &k_subsets,
+                        std::map<std::set<int>, Expr> &doomed_rels, ExprVector &all_k_vars,
+                        hyper_expr_map &k_vars, HornClauseDB::RuleVector &assume_rules);
     void runOnFunction(const Function *F, ExprFactory &m_efac, const ExprVector &vars,
                                       const HornClauseDB::RuleVector &rules, const HornClauseDB::expr_set_type &rels,
                                       std::set<std::set<int>> &k_subsets, HornifyModule &hm, Module &M,

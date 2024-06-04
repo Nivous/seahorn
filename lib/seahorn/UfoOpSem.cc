@@ -1135,7 +1135,8 @@ struct OpSemHyperVisitor : public InstVisitor<OpSemHyperVisitor>, OpSemBase {
     const Function *fn = CB.getCalledFunction();
 
     if (fn && (fn->getName().startswith("hyper.pre") ||
-        fn->getName().startswith("hyper.post"))) {
+        fn->getName().startswith("hyper.post") ||
+        fn->getName().equals("hyper.assume"))) {
       Expr c = lookup(*CB.getOperand(0));
 
       if (fn->getName().equals("hyper.pre.gt") || fn->getName().equals("hyper.post.gt"))

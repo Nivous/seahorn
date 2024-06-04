@@ -2,6 +2,7 @@
 #include "seahorn/Expr/ExprCore.hh"
 #include "seahorn/Expr/ExprOpBind.hh"
 #include "seahorn/Expr/ExprOpBool.hh"
+#include "seahorn/HornClauseDB.hh"
 #include "seahorn/UfoOpSem.hh"
 #include "seahorn/Support/ExprSeahorn.hh"
 #include "seahorn/Support/CFG.hh"
@@ -870,7 +871,7 @@ void KPropertyVerifier::getHyperExprsFromFunction(const Function *F, HornifyModu
                                                   hyper_expr_map &k_vars, std::set<std::set<int>> &k_subsets,
                                                   std::map<int, Expr> &pc_rels,
                                                   ExprVector &pre_rules, std::map<int, Expr> &assumes,
-                                                  int *max_pc, int *min_pre_pc, std::set<int> &obv_point_pc,
+                                                  int *max_pc, unsigned int *min_pre_pc, std::set<int> &obv_point_pc,
                                                   std::map<int, Expr> &obv_point_to_post) {
   const LiveSymbols &ls = hm.getLiveSybols(*F);
   UfoOpSem m_sem(m_efac, hm, M.getDataLayout());
@@ -921,20 +922,23 @@ void KPropertyVerifier::getHyperExprsFromFunction(const Function *F, HornifyModu
       const CallInst &CI = cast<CallInst>(inst);
       const Function *fn = CI.getCalledFunction();
 
+      if (!fn->getName().startswith("hyper"))
+        continue;
+
       analyzed_block = true;
 
       if (fn->getName().startswith("hyper.pre.")) {
         pre_rules.push_back(side[0]);
-        if (*min_pre_pc > count + 1)
-          *min_pre_pc = count + 1;
+        if (*min_pre_pc > count)
+          *min_pre_pc = count;
       } else if (fn->getName().startswith("hyper.post.")) {
-        obv_point_pc.insert(count + 1);
-        obv_point_to_post[count + 1] = side[0];
+        obv_point_pc.insert(count);
+        obv_point_to_post[count] = side[0];
 
-        if (*max_pc < count + 1)
-          *max_pc = count + 1;
-      } else if (fn->getName().startswith("hyper.assume."))
-        assumes[count + 1] = side[0];
+        if (*max_pc < count)
+          *max_pc = count;
+      } else if (fn->getName().equals("hyper.assume"))
+        assumes[count] = side[0];
     }
     
     count++;
@@ -1103,7 +1107,7 @@ void KPropertyVerifier::getDoomedPreExpr(ExprVector &pre_rules,
                                           std::map<std::set<int>, Expr> &doomed_rels,
                                           ExprVector &all_k_vars, std::set<std::set<int>> &k_subsets,
                                           HornClauseDB::RuleVector &doomed_pre_expr, Expr bottom_rel_expr,
-                                          ExprVector &pc_vars, std::map<int, Expr> &pc_expr_map) {
+                                          ExprVector &pc_vars, std::map<int, Expr> &pc_expr_map, int min_pre_pc) {
   ExprSet allVars;
   ExprVector doomed_args;
   ExprVector rules;
@@ -1231,6 +1235,30 @@ void KPropertyVerifier::getValidRules(std::map<int, std::map<std::set<int>, Expr
   }
 }
 
+void KPropertyVerifier::getAssumeRules(std::map<int, Expr> &assumes, std::map<int, Expr> &pc_expr_map,
+                                        ExprVector &pc_vars, std::set<std::set<int>> &k_subsets,
+                                        std::map<std::set<int>, Expr> &doomed_rels, ExprVector &all_k_vars,
+                                        hyper_expr_map &k_vars, HornClauseDB::RuleVector &assume_rules)
+{
+  ExprSet allVars;
+  allVars.insert(all_k_vars.begin(), all_k_vars.end());
+  allVars.insert(pc_vars.begin(), pc_vars.end());
+
+  ExprVector args;
+  for (int i = 0; i < hyper_k; i++)
+    args.push_back(pc_vars[i]);
+
+  args.insert(args.end(), all_k_vars.begin(), all_k_vars.end());
+
+  for (std::map<int, Expr>::iterator it = assumes.begin(); it != assumes.end(); it++) {
+    for (int i = 0; i < hyper_k; i++) {
+      Expr body = boolop::land(boolop::lneg(k_vars[it->second][i]), mk<EQ>(pc_vars[i], pc_expr_map[it->first]));
+      for (std::set<int> subset : k_subsets)
+        assume_rules.push_back(HornRule(allVars, boolop::limp(body, bind::fapp(doomed_rels[subset], args))));
+    }
+  }
+}
+
 bool KPropertyVerifier::runOnModule(Module &M) {
   ScopedStats _st_("KPropertyVerifier");
   HornifyModule &hm = getAnalysis<HornifyModule>();
@@ -1320,7 +1348,7 @@ void KPropertyVerifier::runOnFunction(const Function *F, ExprFactory &m_efac, co
   /* maximum pc for this function*/
   int max_pc_for_function = 0;
   /* first pre rule location in this function */
-  int min_pre_pc = 0xFFFFFFFF;
+  unsigned int min_pre_pc = 0xFFFFFFFF;
 
   /* This map should hold the final trace rules in the reduction
   (combination of size k of pc values) -> (subset -> rules) */
@@ -1337,6 +1365,10 @@ void KPropertyVerifier::runOnFunction(const Function *F, ExprFactory &m_efac, co
   /* the third type of rules in the reduction:
   For all threads: (not valid -> doomed) */
   HornClauseDB::RuleVector valid_horn_rules;
+
+  /* rules for assumptions:
+  !assumption -> doomed */
+  HornClauseDB::RuleVector assume_rules;
 
   /* This maps (src_bb_count, dst_bb_count) ->
   (variables at entry, trace rules in block, variables at exit) */
@@ -1376,15 +1408,17 @@ void KPropertyVerifier::runOnFunction(const Function *F, ExprFactory &m_efac, co
   getBadExprs(obvPoint, bad_rules, obv_point_to_post);
   getTraceRulesFromInfo(F, trace_info, k_vars, trace_rules);
   getDoomedPreExpr(pre_rules, doomed_rels, all_k_vars, k_subsets, doomed_pre_expr, bottom_rel_expr, pc_vars,
-                    pc_expr_map);
+                    pc_expr_map, min_pre_pc);
   getTraceRules(F, all_k_vars, k_vars, pc_combined_rel, pc_rels, k_subsets, k_ary_pc_vectors, trace_info, doomed_rels,
                 trace_rules, final_trace_rules, pc_expr_map, src_dst_map);
   getValidRules(valid_rules, all_k_vars, doomed_rels, k_subsets, valid_horn_rules, pc_vars);
   getBadRules(bad_rules, all_k_vars, doomed_rels, k_subsets, bad_horn_rules, pc_vars);
+  getAssumeRules(assumes, pc_expr_map, pc_vars, k_subsets, doomed_rels, all_k_vars, k_vars, assume_rules);
   
   out->rules.insert(out->rules.begin(), doomed_pre_expr.begin(), doomed_pre_expr.end());
-  out->rules.insert(out->rules.begin(), bad_horn_rules.begin(), bad_horn_rules.end());
-  out->rules.insert(out->rules.begin(), valid_horn_rules.begin(), valid_horn_rules.end());
+  out->rules.insert(out->rules.end(), bad_horn_rules.begin(), bad_horn_rules.end());
+  out->rules.insert(out->rules.end(), valid_horn_rules.begin(), valid_horn_rules.end());
+  out->rules.insert(out->rules.end(), assume_rules.begin(), assume_rules.end());
 
   for (std::map<std::vector<int>, std::map<std::set<int>, HornClauseDB::RuleVector>>::iterator it = final_trace_rules.begin();
         it != final_trace_rules.end();

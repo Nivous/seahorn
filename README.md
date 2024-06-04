@@ -112,6 +112,8 @@ of the pipeline can be run separately as well:
    - `--track={reg,ptr,mem}` where `reg` only models integer
       scalars, `ptr` models `reg` and pointer addresses, and `mem`
       models `ptr` and memory contents.
+   - `--hyper_k=N` where `N` only is a natural number > 1.
+      Currently, this mode supports only k=2 and enables users to verify hyperproperties. It operates independently of the standard Seahorn functions. For a complete list of functions for this mode, refer to [include/seahorn.h](include/seahorn/seahorn.h)
 
 3. `sea smt file.c -o file.smt2`: Generates CHC in SMT-LIB2 format. Is
    an alias for `sea fe` followed by `sea horn`. The command `sea pf`
